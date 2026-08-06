@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Whisper Speech-to-Text</title>
+    <style>
+        :root {
+            --bg: #121318;
+            --card: #1c1d24;
+            --accent: #7c4dff;
+            --accent-hover: #651fff;
+            --text: #e0e0e0;
+            --muted: #a0a0a0;
+            --border: #2a2b36;
+        }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 28px;
+            width: 100%;
+            max-width: 680px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        h2 { margin-top: 0; color: #fff; font-weight: 600; text-align: center; }
+        .drop-zone {
+            border: 2px dashed var(--border);
+            border-radius: 10px;
+            padding: 30px;
+            text-align: center;
+            cursor: pointer;
+            transition: 0.2s;
+            margin-bottom: 20px;
+            background: rgba(255,255,255,0.02);
+        }
+        .drop-zone:hover, .drop-zone.drag {
+            border-color: var(--accent);
+            background: rgba(124, 77, 255, 0.05);
+        }
+        .controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+        select, input {
+            width: 100%;
+            padding: 10px;
+            background: #121318;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            box-sizing: border-box;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background: var(--accent);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-weight: bold;
+            font-size: 15px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        button:hover { background: var(--accent-hover); }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .result-box {
+            margin-top: 20px;
+            background: #121318;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 15px;
+            min-height: 120px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        .actions { display: flex; justify-content: flex-end; margin-top: 10px; }
+        .btn-copy { width: auto; padding: 6px 14px; font-size: 12px; background: #2a2b36; }
+        .btn-copy:hover { background: #3a3b4a; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>🎙️ Whisper Transcription</h2>
+    
+    <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+        <span id="dropText">Перетащите аудио сюда или нажмите для выбора</span>
+        <input type="file" id="fileInput" accept="audio/*,video/*" style="display:none">
+    </div>
+
+    <div class="controls">
+        <div>
+            <label>Язык аудио:</label>
+            <select id="lang">
+                <option value="ru" selected>Русский (ru)</option>
+                <option value="auto">Автоопределение</option>
+                <option value="en">Английский (en)</option>
+            </select>
+        </div>
+        <div>
+            <label>Температура:</label>
+            <input type="number" id="temp" value="0.0" min="0.0" max="1.0" step="0.1">
+        </div>
+        <div>
+            <label>Формат ответа:</label>
+            <select id="format">
+                <option value="json" selected>Чистый текст (JSON)</option>
+                <option value="text">Простой текст</option>
+            </select>
+        </div>
+    </div>
+
+    <button id="submitBtn" onclick="processAudio()">Расшифровать</button>
+
+    <div class="result-box" id="output">Здесь появится результат расшифровки...</div>
+    <div class="actions">
+        <button class="btn-copy" onclick="copyResult()">📋 Копировать текст</button>
+    </div>
+</div>
+
+<script>
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    let selectedFile = null;
+
+    fileInput.onchange = (e) => {
+        selectedFile = e.target.files[0];
+        if (selectedFile) document.getElementById('dropText').innerText = `Файл: ${selectedFile.name}`;
+    };
+
+    dropZone.ondragover = (e) => { e.preventDefault(); dropZone.classList.add('drag'); };
+    dropZone.ondragleave = () => dropZone.classList.remove('drag');
+    dropZone.ondrop = (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('drag');
+        if (e.dataTransfer.files.length) {
+            selectedFile = e.dataTransfer.files[0];
+            document.getElementById('dropText').innerText = `Файл: ${selectedFile.name}`;
+        }
+    };
+
+    async function processAudio() {
+        if (!selectedFile) return alert('Выберите аудиофайл!');
+        
+        const btn = document.getElementById('submitBtn');
+        const out = document.getElementById('output');
+        
+        btn.disabled = true;
+        btn.innerText = 'Обработка (работает GPU)...';
+        out.innerText = 'Расшифровываем аудио...';
+
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+        formData.append('language', document.getElementById('lang').value);
+        formData.append('response_format', document.getElementById('format').value);
+        formData.append('temperature', document.getElementById('temp').value);
+
+        try {
+            const res = await fetch('http://127.0.0.1:8081/inference', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const data = await res.json();
+            out.innerText = data.text || JSON.stringify(data, null, 2);
+        } catch (err) {
+            out.innerText = 'Ошибка подключения к серверу: ' + err.message;
+        } finally {
+            btn.disabled = false;
+            btn.innerText = 'Расшифровать';
+        }
+    }
+
+    function copyResult() {
+        const text = document.getElementById('output').innerText;
+        navigator.clipboard.writeText(text);
+        alert('Скопировано в буфер обмена!');
+    }
+</script>
+
+</body>
+</html>
