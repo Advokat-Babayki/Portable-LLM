@@ -16,6 +16,31 @@ if [ -f "$SCRIPT_DIR/lib/detect_hw.sh" ] && [ -f "$SCRIPT_DIR/lib/common.sh" ]; 
 fi
 
 # ============================================================
+#  КЛЮЧИ КОМАНДНОЙ СТРОКИ
+#  Usage: ./Lunix.sh [--no-ui] [--silent] [--model FILE] [--backend vulkan|cpu]
+# ============================================================
+NO_UI=false
+SILENT=false
+CLI_MODEL=""
+CLI_BACKEND=""
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --no-ui)      NO_UI=true; shift ;;
+        --silent)     NO_UI=true; SILENT=true; shift ;;
+        --model)      CLI_MODEL="$2"; shift 2 ;;
+        --backend)    CLI_BACKEND="$2"; shift 2 ;;
+        --help|-h)
+            echo "Использование: $0 [--no-ui] [--silent] [--model FILE] [--backend vulkan|cpu]"
+            echo "  --no-ui    Запуск без интерактивного меню (требуется --model)"
+            echo "  --silent   Без меню и без открытия браузера (для серверов/SSH)"
+            echo "  --model    Имя файла модели из models/ или whisper/models/"
+            echo "  --backend  Принудительно vulkan или cpu (по умолчанию авто)"
+            exit 0 ;;
+        *) echo "Неизвестный параметр: $1"; echo "Справка: $0 --help"; exit 1 ;;
+    esac
+done
+
+# ============================================================
 #  НАСТРОЙКИ БИНАРНИКОВ
 #  Бинарники НЕ лежат в репозитории — при первом запуске скрипт
 #  скачивает официальные сборки llama.cpp и whisper.cpp.
@@ -148,6 +173,145 @@ ensure_binaries() {
 
 ensure_binaries || exit 1
 
+# ============================================================
+#  ФУНКЦИИ ЗАПУСКА (LLM / Whisper)
+#  Используются и меню, и CLI-режимом
+# ============================================================
+
+run_llm_server() {
+    local backend="$1"
+    local selected_model="$2"
+    local model_mb
+    local ctx
+    local ngl
+    local experts
+    local llm_port
+    local run_args=()
+
+    MODELS_DIR="${MODELS_DIR:-$SCRIPT_DIR/models}"
+
+    if [ "$backend" = "vulkan" ]; then
+        echo -e "\n[Запуск LLM $selected_model на Vulkan GPU...]"
+    else
+        echo -e "\n[Запуск LLM $selected_model на CPU...]"
+    fi
+
+    if [ "$LIB_OK" = true ]; then
+        llm_port=$(find_free_port 8080)
+        echo "Адрес веб-интерфейса: http://127.0.0.1:$llm_port"
+        if [ "$backend" = "vulkan" ]; then
+            cd "$SCRIPT_DIR/bin/linux-vulkan" || return 1
+            chmod +x llama-server 2>/dev/null
+            model_mb=$(get_model_size_mb "$selected_model" "$MODELS_DIR")
+            if is_moe_model "$selected_model"; then
+                experts=$(get_moe_expert_count "$selected_model")
+                [ -z "$experts" ] && experts=8
+                model_mb=$(estimate_moe_vram_mb "$selected_model")
+                echo "[*] Обнаружена MoE модель ($experts экспертов)"
+                ngl=$(estimate_moe_ngl "$HW_VULKAN_VRAM_MB" "$model_mb" "$experts")
+            else
+                ngl=$(estimate_ngl "$HW_VULKAN_VRAM_MB" "$model_mb")
+            fi
+            ctx=$(estimate_context "$HW_VULKAN_VRAM_MB" "$HW_RAM_TOTAL_MB")
+            run_args=("-m" "../../models/$selected_model" "-ngl" "$ngl" "-c" "$ctx" "-t" "$HW_THREADS" "-b" "512" "-ub" "512" "--path" ".")
+            run_args+=("--host" "127.0.0.1" "--port" "$llm_port")
+            echo "[*] Параметры: ${run_args[*]}"
+            if [ "$SILENT" = false ]; then
+                (xdg-open "http://127.0.0.1:$llm_port" >/dev/null 2>&1 &)
+            fi
+            run_with_crash_log "llm" "vulkan" "$SCRIPT_DIR/bin/linux-vulkan/llama-server" "${run_args[@]}"
+        else
+            cd "$SCRIPT_DIR/bin/linux-cpu" || return 1
+            chmod +x llama-server 2>/dev/null
+            model_mb=$(get_model_size_mb "$selected_model" "$MODELS_DIR")
+            ctx=$(estimate_context "$HW_VULKAN_VRAM_MB" "$HW_RAM_TOTAL_MB")
+            run_args=("-m" "../../models/$selected_model" "-ngl" "0" "-c" "$ctx" "-t" "$HW_THREADS" "-b" "256" "--path" ".")
+            if [ "$HW_RAM_TOTAL_MB" -gt $((model_mb * 3)) ]; then
+                run_args+=("--load-mode" "mlock")
+            fi
+            run_args+=("--host" "127.0.0.1" "--port" "$llm_port")
+            echo "[*] Параметры: ${run_args[*]}"
+            if [ "$SILENT" = false ]; then
+                (xdg-open "http://127.0.0.1:$llm_port" >/dev/null 2>&1 &)
+            fi
+            run_with_crash_log "llm" "cpu" "$SCRIPT_DIR/bin/linux-cpu/llama-server" "${run_args[@]}"
+        fi
+    else
+        echo "Адрес веб-интерфейса: http://127.0.0.1:8080"
+        if [ "$backend" = "vulkan" ]; then
+            cd "$SCRIPT_DIR/bin/linux-vulkan" || return 1
+            chmod +x llama-server 2>/dev/null
+            ./llama-server -m "../../models/$selected_model" -ngl 99 -c 8192 --host 127.0.0.1 --port 8080
+        else
+            cd "$SCRIPT_DIR/bin/linux-cpu" || return 1
+            chmod +x llama-server 2>/dev/null
+            ./llama-server -m "../../models/$selected_model" -c 8192 --host 127.0.0.1 --port 8080
+        fi
+    fi
+    cd "$SCRIPT_DIR"
+}
+
+run_whisper_server() {
+    local selected_model="$1"
+    local whisper_port
+    local run_args=()
+    local ui_url
+
+    WHISPER_MODELS_DIR="${WHISPER_MODELS_DIR:-$SCRIPT_DIR/whisper/models}"
+
+    echo -e "\n[Запуск Whisper $selected_model на CPU...]"
+
+    if [ "$LIB_OK" = true ]; then
+        whisper_port=$(find_free_port 8081)
+        echo "Адрес веб-интерфейса: http://127.0.0.1:$whisper_port"
+        cd "$SCRIPT_DIR/whisper/bin/linux-cpu" || return 1
+        chmod +x whisper-server 2>/dev/null
+        run_args=("-m" "../../models/$selected_model" "--host" "127.0.0.1" "--port" "$whisper_port" "--public" ".")
+        echo "[*] Параметры: ${run_args[*]}"
+        if [ "$SILENT" = false ]; then
+            ui_url="http://127.0.0.1:$whisper_port/ui.html?port=$whisper_port"
+            (xdg-open "$ui_url" >/dev/null 2>&1 &)
+        fi
+        run_with_crash_log "whisper" "cpu" "$SCRIPT_DIR/whisper/bin/linux-cpu/whisper-server" "${run_args[@]}"
+    else
+        echo "Адрес веб-интерфейса: http://127.0.0.1:8081"
+        cd "$SCRIPT_DIR/whisper/bin/linux-cpu" || return 1
+        chmod +x whisper-server 2>/dev/null
+        ./whisper-server -m "../../models/$selected_model" --host 127.0.0.1 --port 8081
+    fi
+    cd "$SCRIPT_DIR"
+}
+
+# ============================================================
+#  CLI-РЕЖИМ (--no-ui / --silent)
+# ============================================================
+if [ "$NO_UI" = true ]; then
+    if [ -n "$CLI_MODEL" ]; then
+        if [ -f "$SCRIPT_DIR/models/$CLI_MODEL" ]; then
+            backend="vulkan"
+            if [ "$LIB_OK" = true ] && [ "$HW_VULKAN_FOUND" = false ]; then
+                backend="cpu"
+            fi
+            [ -n "$CLI_BACKEND" ] && backend="$CLI_BACKEND"
+            if [ "$backend" != "vulkan" ] && [ "$backend" != "cpu" ]; then
+                echo "[!] Неверный backend: $backend (допустимо: vulkan, cpu)"
+                exit 1
+            fi
+            run_llm_server "$backend" "$CLI_MODEL"
+        elif [ -f "$SCRIPT_DIR/whisper/models/$CLI_MODEL" ]; then
+            run_whisper_server "$CLI_MODEL"
+        else
+            echo "[!] Модель не найдена: $CLI_MODEL"
+            echo "    Ищите в models/ (LLM) или whisper/models/ (Whisper)."
+            exit 1
+        fi
+    else
+        echo "[!] Укажите модель: $0 --no-ui --model MODEL_FILE"
+        exit 1
+    fi
+    exit 0
+fi
+
 while true; do
     clear
     echo "==================================================="
@@ -228,60 +392,12 @@ while true; do
 
                     case $r_choice in
                         1)
-                            echo -e "\n[Запуск LLM $SELECTED_MODEL на CPU...]"
-                            if [ "$LIB_OK" = true ]; then
-                                llm_port=$(find_free_port 8080)
-                                echo "Адрес веб-интерфейса: http://127.0.0.1:$llm_port"
-                                cd "$SCRIPT_DIR/bin/linux-cpu"
-                                chmod +x llama-server 2>/dev/null
-                                model_mb=$(get_model_size_mb "$SELECTED_MODEL" "$MODELS_DIR")
-                                ctx=$(estimate_context "$HW_VULKAN_VRAM_MB" "$HW_RAM_TOTAL_MB")
-                                args=("-m" "../../models/$SELECTED_MODEL" "-ngl" "0" "-c" "$ctx" "-t" "$HW_THREADS" "-b" "256" "--path" ".")
-                                if [ "$HW_RAM_TOTAL_MB" -gt $((model_mb * 3)) ]; then
-                                    args+=("--load-mode" "mlock")
-                                fi
-                                args+=("--host" "127.0.0.1" "--port" "$llm_port")
-                                echo "[*] Параметры: ${args[*]}"
-                                (xdg-open "http://127.0.0.1:$llm_port" >/dev/null 2>&1 &)
-                                run_with_crash_log "llm" "cpu" "$SCRIPT_DIR/bin/linux-cpu/llama-server" "${args[@]}"
-                            else
-                                echo "Адрес веб-интерфейса: http://127.0.0.1:8080"
-                                cd "$SCRIPT_DIR/bin/linux-cpu"
-                                chmod +x llama-server 2>/dev/null
-                                ./llama-server -m "../../models/$SELECTED_MODEL" -c 8192 --host 127.0.0.1 --port 8080
-                            fi
+                            run_llm_server "cpu" "$SELECTED_MODEL"
                             read -p "Сервер остановлен. Нажмите Enter..."
                             break
                             ;;
                         2)
-                            echo -e "\n[Запуск LLM $SELECTED_MODEL на Vulkan GPU...]"
-                            if [ "$LIB_OK" = true ]; then
-                                llm_port=$(find_free_port 8080)
-                                echo "Адрес веб-интерфейса: http://127.0.0.1:$llm_port"
-                                cd "$SCRIPT_DIR/bin/linux-vulkan"
-                                chmod +x llama-server 2>/dev/null
-                                model_mb=$(get_model_size_mb "$SELECTED_MODEL" "$MODELS_DIR")
-                                if is_moe_model "$SELECTED_MODEL"; then
-                                    experts=$(get_moe_expert_count "$SELECTED_MODEL")
-                                    [ -z "$experts" ] && experts=8
-                                    model_mb=$(estimate_moe_vram_mb "$SELECTED_MODEL")
-                                    echo "[*] Обнаружена MoE модель ($experts экспертов)"
-                                    ngl=$(estimate_moe_ngl "$HW_VULKAN_VRAM_MB" "$model_mb" "$experts")
-                                else
-                                    ngl=$(estimate_ngl "$HW_VULKAN_VRAM_MB" "$model_mb")
-                                fi
-                                ctx=$(estimate_context "$HW_VULKAN_VRAM_MB" "$HW_RAM_TOTAL_MB")
-                                args=("-m" "../../models/$SELECTED_MODEL" "-ngl" "$ngl" "-c" "$ctx" "-t" "$HW_THREADS" "-b" "512" "-ub" "512" "--path" ".")
-                                args+=("--host" "127.0.0.1" "--port" "$llm_port")
-                                echo "[*] Параметры: ${args[*]}"
-                                (xdg-open "http://127.0.0.1:$llm_port" >/dev/null 2>&1 &)
-                                run_with_crash_log "llm" "vulkan" "$SCRIPT_DIR/bin/linux-vulkan/llama-server" "${args[@]}"
-                            else
-                                echo "Адрес веб-интерфейса: http://127.0.0.1:8080"
-                                cd "$SCRIPT_DIR/bin/linux-vulkan"
-                                chmod +x llama-server 2>/dev/null
-                                ./llama-server -m "../../models/$SELECTED_MODEL" -ngl 99 -c 8192 --host 127.0.0.1 --port 8080
-                            fi
+                            run_llm_server "vulkan" "$SELECTED_MODEL"
                             read -p "Сервер остановлен. Нажмите Enter..."
                             break
                             ;;
@@ -359,23 +475,7 @@ while true; do
 
                     case $wr_choice in
                         1)
-                            echo -e "\n[Запуск Whisper $SELECTED_W_MODEL на CPU...]"
-                            if [ "$LIB_OK" = true ]; then
-                                whisper_port=$(find_free_port 8081)
-                                echo "Адрес веб-интерфейса: http://127.0.0.1:$whisper_port"
-                                cd "$SCRIPT_DIR/whisper/bin/linux-cpu"
-                                chmod +x whisper-server 2>/dev/null
-                                args=("-m" "../../models/$SELECTED_W_MODEL" "--host" "127.0.0.1" "--port" "$whisper_port" "--public" ".")
-                                echo "[*] Параметры: ${args[*]}"
-                                ui_url="http://127.0.0.1:$whisper_port/ui.html?port=$whisper_port"
-                                (xdg-open "$ui_url" >/dev/null 2>&1 &)
-                                run_with_crash_log "whisper" "cpu" "$SCRIPT_DIR/whisper/bin/linux-cpu/whisper-server" "${args[@]}"
-                            else
-                                echo "Адрес веб-интерфейса: http://127.0.0.1:8081"
-                                cd "$SCRIPT_DIR/whisper/bin/linux-cpu"
-                                chmod +x whisper-server 2>/dev/null
-                                ./whisper-server -m "../../models/$SELECTED_W_MODEL" --host 127.0.0.1 --port 8081
-                            fi
+                            run_whisper_server "$SELECTED_W_MODEL"
                             read -p "Сервер остановлен. Нажмите Enter..."
                             break
                             ;;
