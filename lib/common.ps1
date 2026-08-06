@@ -135,7 +135,7 @@ function Run-With-CrashLog {
         [string]$Mode,
         [string]$Backend,
         [string]$BinPath,
-        [string[]]$Args
+        [string[]]$CmdArgs
     )
 
     $timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
@@ -153,7 +153,7 @@ function Run-With-CrashLog {
 
     $exitCode = -1
     try {
-        $proc = Start-Process -FilePath $BinPath -ArgumentList $Args -NoNewWindow `
+        $proc = Start-Process -FilePath $BinPath -ArgumentList $CmdArgs -NoNewWindow `
             -PassThru -RedirectStandardOutput $runLog -RedirectStandardError $errLog
         $proc.WaitForExit()
         $exitCode = $proc.ExitCode
@@ -177,7 +177,7 @@ function Run-With-CrashLog {
             "Backend: $Backend"
             "Mode: $Mode"
             "Exit code: $exitCode"
-            "Args: $BinPath $($Args -join ' ')"
+            "Args: $BinPath $($CmdArgs -join ' ')"
             "HW_OS: $($HW_OS)"
             "CPU: $($HW_CPU_VENDOR) ($($HW_CPU_VIRT_CORES) threads)"
             "RAM: $($HW_RAM_TOTAL_MB) MB total"

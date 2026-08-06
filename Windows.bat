@@ -1,4 +1,5 @@
-﻿@echo off
+$content = @'
+@echo off
 chcp 65001 > nul
 setlocal enabledelayedexpansion
 
@@ -417,3 +418,6 @@ if not "!W_EXIT!"=="0" if not "!W_EXIT!"=="1" if not "!W_EXIT!"=="2" if not "!W_
 )
 pause
 goto whisper_menu
+'@
+
+[System.IO.File]::WriteAllText("Windows.bat", $content, [System.Text.Encoding]::UTF8)
