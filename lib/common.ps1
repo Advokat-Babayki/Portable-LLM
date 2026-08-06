@@ -200,3 +200,39 @@ function Run-With-CrashLog {
     Remove-Item $runLog, $errLog -ErrorAction SilentlyContinue
     return $exitCode
 }
+
+# --- Write a short crash report (called from Windows.bat after abnormal exit) ---
+# В отличие от Run-With-CrashLog, не перезапускает сервер: только пишет
+# отчёт по уже завершившемуся процессу (exit-код передаёт .bat).
+function New-CrashReport {
+    param(
+        [string]$Mode,          # LLM / WHISPER
+        [string]$Backend,
+        [string]$Model,
+        [string]$Params,        # строка параметров запуска
+        [int]$ExitCode
+    )
+
+    $logDir = "logs"
+    if (-not (Test-Path $logDir)) {
+        New-Item -ItemType Directory -Path $logDir | Out-Null
+    }
+
+    $crashFile = "$logDir\crash_$(Get-Date -Format 'yyyyMMdd_HHmmss')_${Mode}.log"
+    $report = @(
+        "=== CRASH REPORT ==="
+        "Timestamp: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+        "Backend: $Backend"
+        "Mode: $Mode"
+        "Exit code: $ExitCode"
+        "Model: $Model"
+        "Params: $Params"
+        "HW_OS: $($HW_OS)"
+        "CPU: $($HW_CPU_VENDOR) ($($HW_CPU_VIRT_CORES) threads)"
+        "RAM: $($HW_RAM_TOTAL_MB) MB total"
+        if ($HW_VULKAN_FOUND) { "GPU: $($HW_VULKAN_DEVICE) ($($HW_VULKAN_VRAM_MB) MB)" }
+        ""
+    )
+    $report | Out-File -FilePath $crashFile -Encoding utf8
+    Write-Host "[!] Краш! Отчёт сохранён: $crashFile"
+}

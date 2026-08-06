@@ -1,5 +1,4 @@
-$content = @'
-@echo off
+﻿@echo off
 chcp 65001 > nul
 setlocal enabledelayedexpansion
 
@@ -123,9 +122,16 @@ exit /b 0
 
 :main_menu
 cls
+if exist "%~dp0lib\detect_hw.ps1" (
+    for /f "usebackq delims=" %%a in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0lib\detect_hw.ps1"`) do set "%%a"
+)
 echo ===================================================
 echo          LLM & Whisper Launcher — Windows
 echo ===================================================
+echo.
+if defined HW_CPU_VENDOR echo   CPU: %HW_CPU_VENDOR% ^| %HW_CPU_VIRT_CORES% потоков ^| %HW_RAM_TOTAL_MB% MB RAM
+if defined HW_VULKAN_FOUND if "%HW_VULKAN_FOUND%"=="True" echo   GPU: %HW_VULKAN_DEVICE% ^| %HW_VULKAN_VRAM_MB% MB VRAM
+if defined HW_REC_REASON echo   Рекомендация: %HW_REC_REASON%
 echo.
 echo   1) 💬 Текстовая нейросеть (LLM / Чат)
 echo   2) 🎙️  Распознавание речи (Whisper)
@@ -157,9 +163,16 @@ if defined count (
 )
 set "count=0"
 
-for %%F in ("models\*.gguf") do (
-    set /a count+=1
-    set "LLM_MODEL_!count!=%%~nxF"
+if exist "%~dp0lib\detect_hw.ps1" (
+    for /f "usebackq delims=" %%m in (`powershell -NoProfile -ExecutionPolicy Bypass -Command ". '%~dp0lib\detect_hw.ps1'; Get-ChildItem 'models\*.gguf' -ErrorAction SilentlyContinue | ForEach-Object { $n = $_.Name; $s = Get-ModelSizeMB -Filename $n -BaseDir 'models'; Write-Output ($n + '|' + $s) }"`) do (
+        set /a count+=1
+        for /f "tokens=1* delims=|" %%a in ("%%m") do set "LLM_MODEL_!count!=%%a" & set "LLM_SIZE_!count!=%%b"
+    )
+) else (
+    for %%F in ("models\*.gguf") do (
+        set /a count+=1
+        set "LLM_MODEL_!count!=%%~nxF"
+    )
 )
 
 if %count%==0 (
@@ -171,7 +184,11 @@ if %count%==0 (
 
 echo Доступные модели:
 for /l %%i in (1,1,%count%) do (
-    echo   %%i^) !LLM_MODEL_%%i!
+    if "!LLM_SIZE_%%i!"=="" (
+        echo   %%i^) !LLM_MODEL_%%i!
+    ) else (
+        echo   %%i^) !LLM_MODEL_%%i!  (~!LLM_SIZE_%%i! MB^)
+    )
 )
 echo   b^) Назад в главное меню
 echo.
@@ -216,31 +233,79 @@ goto llm_mode_menu
 
 :run_llm_cpu
 cls
-echo.
-echo [Запуск LLM !SELECTED_MODEL! на CPU...]
-echo Адрес веб-интерфейса: http://127.0.0.1:8080
-echo.
-cd /d "%~dp0bin\win-cpu"
-llama-server.exe -m "..\..\models\!SELECTED_MODEL!" -c 2048 -np 1 --host 127.0.0.1 --port 8080
-echo.
-echo Сервер остановлен.
-pause
-cd /d "%~dp0"
-goto llm_menu
+set "LLM_BACKEND=cpu"
+set "LLM_BINDIR=bin\win-cpu"
+goto run_llm_common
 
 :run_llm_vulkan
 cls
+set "LLM_BACKEND=vulkan"
+set "LLM_BINDIR=bin\win-vulkan"
+goto run_llm_common
+
+:run_llm_common
+if not exist "%~dp0lib\autotune.ps1" goto run_llm_legacy
+
+for /f "usebackq delims=" %%a in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0lib\autotune.ps1" -Model "!SELECTED_MODEL!" -Backend "!LLM_BACKEND!" -ModelDir "%~dp0models"`) do set "%%a"
+if not defined LLM_CTX set "LLM_CTX=2048"
+if not defined LLM_NGL set "LLM_NGL=0"
+if not defined LLM_THREADS set "LLM_THREADS=1"
+if not defined LLM_BATCH set "LLM_BATCH=256"
+if not defined LLM_UB set "LLM_UB=512"
+
+set "LLM_PORT="
+for /f "usebackq delims=" %%p in (`powershell -NoProfile -ExecutionPolicy Bypass -Command ". '%~dp0lib\common.ps1'; Find-FreePort 8080"`) do set "LLM_PORT=%%p"
+if not defined LLM_PORT set "LLM_PORT=8080"
+
+cls
+echo ===================================================
+echo Выбрана модель: !SELECTED_MODEL!
+echo ===================================================
 echo.
-echo [Запуск LLM !SELECTED_MODEL! на Vulkan GPU...]
+echo [Запуск LLM на !LLM_BACKEND!...]
+echo Адрес веб-интерфейса: http://127.0.0.1:!LLM_PORT!
+echo Параметры: ctx=!LLM_CTX! ngl=!LLM_NGL! threads=!LLM_THREADS! batch=!LLM_BATCH!
+if "!LLM_MOE!"=="True" echo [*] Обнаружена MoE модель (!LLM_EXPERTS! экспертов)
+echo (браузер откроется автоматически)
+echo ===================================================
+start /b "" cmd /c "ping -n 12 127.0.0.1 >nul & start "" "" http://127.0.0.1:!LLM_PORT!"
+
+cd /d "%~dp0!LLM_BINDIR!"
+if "!LLM_BACKEND!"=="vulkan" set "GGML_VK_VISIBLE_DEVICES=0"
+set "LLM_EXIT=0"
+llama-server.exe -m "..\..\models\!SELECTED_MODEL!" -c !LLM_CTX! -ngl !LLM_NGL! -t !LLM_THREADS! -b !LLM_BATCH! -ub !LLM_UB! --host 127.0.0.1 --port !LLM_PORT!
+set "LLM_EXIT=!errorlevel!"
+cd /d "%~dp0"
+
+echo.
+echo Сервер остановлен (код: !LLM_EXIT!).
+if not "!LLM_EXIT!"=="0" if not "!LLM_EXIT!"=="1" if not "!LLM_EXIT!"=="2" if not "!LLM_EXIT!"=="3221225786" (
+    powershell -NoProfile -ExecutionPolicy Bypass -Command ". '%~dp0lib\common.ps1'; . '%~dp0lib\detect_hw.ps1'; New-CrashReport -Mode 'LLM' -Backend '!LLM_BACKEND!' -Model '!SELECTED_MODEL!' -Params 'ctx=!LLM_CTX! ngl=!LLM_NGL! threads=!LLM_THREADS! batch=!LLM_BATCH! port=!LLM_PORT!' -ExitCode !LLM_EXIT!"
+)
+pause
+goto llm_menu
+
+:run_llm_legacy
+cls
+echo ===================================================
+echo Выбрана модель: !SELECTED_MODEL!
+echo ===================================================
+echo.
+echo [Запуск LLM на !LLM_BACKEND! (режим совместимости)...]
 echo Адрес веб-интерфейса: http://127.0.0.1:8080
 echo.
-cd /d "%~dp0bin\win-vulkan"
-set "GGML_VK_VISIBLE_DEVICES=0"
-llama-server.exe -m "..\..\models\!SELECTED_MODEL!" -ngl 99 -c 2048 -np 1 --host 127.0.0.1 --port 8080
-echo.
-echo Сервер остановлен.
-pause
+cd /d "%~dp0!LLM_BINDIR!"
+if "!LLM_BACKEND!"=="vulkan" (
+    set "GGML_VK_VISIBLE_DEVICES=0"
+    llama-server.exe -m "..\..\models\!SELECTED_MODEL!" -ngl 99 -c 2048 -np 1 --host 127.0.0.1 --port 8080
+) else (
+    llama-server.exe -m "..\..\models\!SELECTED_MODEL!" -c 2048 -np 1 --host 127.0.0.1 --port 8080
+)
+set "LLM_EXIT=!errorlevel!"
 cd /d "%~dp0"
+echo.
+echo Сервер остановлен (код: !LLM_EXIT!).
+pause
 goto llm_menu
 
 
@@ -260,9 +325,16 @@ if defined w_count (
 )
 set "w_count=0"
 
-for %%F in ("whisper\models\*.bin" "whisper\models\*.gguf") do (
-    set /a w_count+=1
-    set "W_MODEL_!w_count!=%%~nxF"
+if exist "%~dp0lib\detect_hw.ps1" (
+    for /f "usebackq delims=" %%m in (`powershell -NoProfile -ExecutionPolicy Bypass -Command ". '%~dp0lib\detect_hw.ps1'; Get-ChildItem 'whisper\models\*.bin','whisper\models\*.gguf' -ErrorAction SilentlyContinue | ForEach-Object { $n = $_.Name; $s = Get-ModelSizeMB -Filename $n -BaseDir 'whisper\models'; Write-Output ($n + '|' + $s) }"`) do (
+        set /a w_count+=1
+        for /f "tokens=1* delims=|" %%a in ("%%m") do set "W_MODEL_!w_count!=%%a" & set "W_SIZE_!w_count!=%%b"
+    )
+) else (
+    for %%F in ("whisper\models\*.bin" "whisper\models\*.gguf") do (
+        set /a w_count+=1
+        set "W_MODEL_!w_count!=%%~nxF"
+    )
 )
 
 if %w_count%==0 (
@@ -274,7 +346,11 @@ if %w_count%==0 (
 
 echo Доступные модели Whisper:
 for /l %%i in (1,1,%w_count%) do (
-    echo   %%i^) !W_MODEL_%%i!
+    if "!W_SIZE_%%i!"=="" (
+        echo   %%i^) !W_MODEL_%%i!
+    ) else (
+        echo   %%i^) !W_MODEL_%%i!  (~!W_SIZE_%%i! MB^)
+    )
 )
 echo   b^) Назад в главное меню
 echo.
@@ -318,16 +394,26 @@ goto whisper_mode_menu
 
 :run_whisper_cpu
 cls
+set "W_PORT="
+if exist "%~dp0lib\common.ps1" (
+    for /f "usebackq delims=" %%p in (`powershell -NoProfile -ExecutionPolicy Bypass -Command ". '%~dp0lib\common.ps1'; Find-FreePort 8081"`) do set "W_PORT=%%p"
+)
+if not defined W_PORT set "W_PORT=8081"
+
 echo.
 echo [Запуск Whisper !SELECTED_W_MODEL! на CPU...]
-echo Адрес веб-интерфейса: http://127.0.0.1:8081
+echo Адрес веб-интерфейса: http://127.0.0.1:!W_PORT!
+echo (браузер откроется автоматически)
+start /b "" cmd /c "ping -n 8 127.0.0.1 >nul & start "" "" http://127.0.0.1:!W_PORT!"
 cd /d "%~dp0whisper\bin\win-cpu"
-whisper-server.exe -m "..\..\models\!SELECTED_W_MODEL!" --host 127.0.0.1 --port 8081
-echo.
-echo Сервер остановлен.
-pause
+set "W_EXIT=0"
+whisper-server.exe -m "..\..\models\!SELECTED_W_MODEL!" --host 127.0.0.1 --port !W_PORT!
+set "W_EXIT=!errorlevel!"
 cd /d "%~dp0"
+echo.
+echo Сервер остановлен (код: !W_EXIT!).
+if not "!W_EXIT!"=="0" if not "!W_EXIT!"=="1" if not "!W_EXIT!"=="2" if not "!W_EXIT!"=="3221225786" (
+    powershell -NoProfile -ExecutionPolicy Bypass -Command ". '%~dp0lib\common.ps1'; . '%~dp0lib\detect_hw.ps1'; New-CrashReport -Mode 'WHISPER' -Backend 'cpu' -Model '!SELECTED_W_MODEL!' -Params 'port=!W_PORT!' -ExitCode !W_EXIT!"
+)
+pause
 goto whisper_menu
-'@
-
-[System.IO.File]::WriteAllText("Windows.bat", $content, [System.Text.Encoding]::UTF8)
