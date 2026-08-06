@@ -5,6 +5,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: windows-test
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
