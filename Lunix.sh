@@ -2,6 +2,20 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ============================================================
+#  МОДУЛИ lib/ (детект железа + общие функции)
+#  Если lib/ отсутствует — скрипт работает в прежнем режиме
+#  с фиксированными параметрами (-c 8192, -ngl 99, порты 8080/8081).
+# ============================================================
+LIB_OK=false
+if [ -f "$SCRIPT_DIR/lib/detect_hw.sh" ] && [ -f "$SCRIPT_DIR/lib/common.sh" ]; then
+    source "$SCRIPT_DIR/lib/detect_hw.sh" 2>/dev/null
+    source "$SCRIPT_DIR/lib/common.sh" 2>/dev/null
+    if [ -n "${HW_RAM_TOTAL_MB:-}" ]; then
+        LIB_OK=true
+    fi
+fi
+
+# ============================================================
 #  НАСТРОЙКИ БИНАРНИКОВ
 #  Бинарники НЕ лежат в репозитории — при первом запуске скрипт
 #  скачивает официальные сборки llama.cpp и whisper.cpp.
@@ -139,6 +153,10 @@ while true; do
     echo "==================================================="
     echo "          LLM & Whisper Launcher — Linux"
     echo "==================================================="
+    if [ "$LIB_OK" = true ]; then
+        print_hw_info
+        echo ""
+    fi
     echo ""
     echo "  1) 💬 Текстовая нейросеть (LLM / Чат)"
     echo "  2) 🎙️  Распознавание речи (Whisper)"
@@ -170,7 +188,12 @@ while true; do
 
                 echo "Доступные модели:"
                 for i in "${!MODELS[@]}"; do
-                    echo "  $((i+1))) ${MODELS[$i]}"
+                    if [ "$LIB_OK" = true ]; then
+                        local_size=$(get_model_size_mb "${MODELS[$i]}" "$MODELS_DIR")
+                        echo "  $((i+1))) ${MODELS[$i]} (~$local_size MB)"
+                    else
+                        echo "  $((i+1))) ${MODELS[$i]}"
+                    fi
                 done
                 echo "  b) Назад в главное меню"
                 echo ""
@@ -256,7 +279,12 @@ while true; do
 
                 echo "Доступные модели Whisper:"
                 for i in "${!W_MODELS[@]}"; do
-                    echo "  $((i+1))) ${W_MODELS[$i]}"
+                    if [ "$LIB_OK" = true ]; then
+                        local_size=$(get_model_size_mb "${W_MODELS[$i]}" "$WHISPER_MODELS_DIR")
+                        echo "  $((i+1))) ${W_MODELS[$i]} (~$local_size MB)"
+                    else
+                        echo "  $((i+1))) ${W_MODELS[$i]}"
+                    fi
                 done
                 echo "  b) Назад в главное меню"
                 echo ""
