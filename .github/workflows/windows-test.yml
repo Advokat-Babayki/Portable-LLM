@@ -1,0 +1,85 @@
+name: Windows tests
+
+on:
+  push:
+    paths:
+      - 'Windows.bat'
+      - 'lib/*.ps1'
+      - 'tests/**'
+      - '.github/workflows/windows-test.yml'
+  pull_request:
+    paths:
+      - 'Windows.bat'
+      - 'lib/*.ps1'
+      - 'tests/**'
+      - '.github/workflows/windows-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ps-unit:
+    name: Unit tests (PowerShell 5.1 + pwsh 7)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unit tests on Windows PowerShell 5.1
+        run: ./tests/windows-unit.ps1
+      - name: Unit tests on pwsh 7.x
+        shell: pwsh
+        run: ./tests/windows-unit.ps1
+
+  server-smoke:
+    name: Server smoke (real llama-server.exe)
+    runs-on: windows-latest
+    needs: ps-unit
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download llama.cpp win-cpu binary (b9932)
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          $zip = "$env:TEMP\llama-win-cpu.zip"
+          Invoke-WebRequest -Uri 'https://github.com/ggml-org/llama.cpp/releases/download/b9932/llama-b9932-bin-win-cpu-x64.zip' -OutFile $zip
+          New-Item -ItemType Directory -Force bin\win-cpu | Out-Null
+          Expand-Archive -Path $zip -DestinationPath "$env:TEMP\llama-bin" -Force
+          Copy-Item "$env:TEMP\llama-bin\*\llama-server.exe" bin\win-cpu\ -Force
+          Get-Item bin\win-cpu\llama-server.exe | Select-Object Name, Length
+      - name: Download small test model (~0.4 GB)
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          New-Item -ItemType Directory -Force models | Out-Null
+          Invoke-WebRequest -Uri 'https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf' -OutFile 'models\qwen2.5-coder-0.5b-instruct-q4_k_m.gguf'
+          Get-Item 'models\qwen2.5-coder-0.5b-instruct-q4_k_m.gguf' | Select-Object Name, Length
+      - name: Boot server with autotune params and check /health
+        run: |
+          $kv = & powershell -NoProfile -ExecutionPolicy Bypass -File lib\autotune.ps1 -Model 'qwen2.5-coder-0.5b-instruct-q4_k_m.gguf' -Backend cpu -ModelDir models
+          $vars = @{}
+          foreach ($line in $kv) { if ($line -match '^([^=]+)=(.+)$') { $vars[$matches[1]] = $matches[2] } }
+          $ctx = $vars['LLM_CTX']; $thr = $vars['LLM_THREADS']; $port = 8080
+          Write-Host "Autotune: ctx=$ctx threads=$thr"
+          $proc = Start-Process -FilePath 'bin\win-cpu\llama-server.exe' -ArgumentList @('-m','models\qwen2.5-coder-0.5b-instruct-q4_k_m.gguf','-c',$ctx,'-ngl','0','-t',$thr,'-b','256','--host','127.0.0.1','--port',$port) -PassThru -NoNewWindow -RedirectStandardOutput "$env:TEMP\llm-server.log" -RedirectStandardError "$env:TEMP\llm-server.err"
+          $ok = $false
+          try {
+            for ($i = 0; $i -lt 60; $i++) {
+              Start-Sleep -Seconds 1
+              try {
+                $r = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$port/health" -TimeoutSec 3
+                if ($r.StatusCode -eq 200) { $ok = $true; break }
+              } catch {}
+            }
+          } finally {
+            if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+          }
+          if (-not $ok) {
+            Get-Content "$env:TEMP\llm-server.log" -ErrorAction SilentlyContinue | Select-Object -Last 30
+            Get-Content "$env:TEMP\llm-server.err" -ErrorAction SilentlyContinue | Select-Object -Last 30
+            throw 'Server did not become healthy in 60s'
+          }
+          Write-Host 'SMOKE OK: /health = 200'
