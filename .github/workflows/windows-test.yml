@@ -1,4 +1,5 @@
 name: Windows tests
+# запускается также по push (on.push) и вручную (workflow_dispatch)
 
 on:
   push:
