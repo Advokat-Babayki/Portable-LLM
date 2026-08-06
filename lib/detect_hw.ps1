@@ -184,6 +184,8 @@ function Detect-Hardware {
     if (-not $script:HW_CPU_VIRT_CORES -or $script:HW_CPU_VIRT_CORES -lt 1) { $script:HW_CPU_VIRT_CORES = 1 }
     if (-not $script:HW_CPU_PHYS_CORES -or $script:HW_CPU_PHYS_CORES -lt 1) { $script:HW_CPU_PHYS_CORES = $script:HW_CPU_VIRT_CORES }
     if ($script:HW_THREADS -lt 1) { $script:HW_THREADS = 1 }
+    # VendorID может вернуть null/пустоту в изолированных окружениях (CI) — не оставляем null
+    if ([string]::IsNullOrEmpty([string]$script:HW_CPU_VENDOR)) { $script:HW_CPU_VENDOR = "unknown" }
 }
 
 Detect-Hardware

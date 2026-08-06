@@ -107,7 +107,8 @@ $vars = @{}
 foreach ($line in $lines) {
     if ($line -match '^([^=]+)=(.+)$') { $vars[$matches[1]] = $matches[2] }
 }
-Assert-Equal '2048' $vars['LLM_CTX'] 'autotune: LLM_CTX'
+$expCtx = (Estimate-Context -VRAMMB $HW_VULKAN_VRAM_MB -RAMMB $HW_RAM_TOTAL_MB)
+Assert-Equal ([string]$expCtx) $vars['LLM_CTX'] 'autotune: LLM_CTX'
 Assert-Equal '4014' $vars['LLM_MODEL_MB'] 'autotune: LLM_MODEL_MB'
 Assert-Equal '0' $vars['LLM_NGL'] 'autotune: LLM_NGL (cpu)'
 Assert-Equal '256' $vars['LLM_BATCH'] 'autotune: LLM_BATCH (cpu)'
@@ -118,7 +119,7 @@ Assert-True ($vars['LLM_THREADS'] -ge 1) 'autotune: LLM_THREADS'
 Write-Host "=== cmd for /f парсинг autotune (только Windows) ==="
 if ($env:OS -eq 'Windows_NT') {
     $cmdOut = & cmd /d /c 'for /f "usebackq delims=" %a in (`powershell -NoProfile -ExecutionPolicy Bypass -File lib\autotune.ps1 -Model qwen2.5-7b-instruct-q4_k_m.gguf -Backend cpu -ModelDir models`) do @echo %a'
-    Assert-True ($cmdOut -match 'LLM_CTX=2048') 'cmd for /f: LLM_CTX'
+    Assert-True ($cmdOut -match "LLM_CTX=$expCtx") 'cmd for /f: LLM_CTX'
     Assert-True ($cmdOut -match 'LLM_MODEL_MB=4014') 'cmd for /f: LLM_MODEL_MB'
 } else {
     Write-Host "SKIP: cmd недоступен на Linux"

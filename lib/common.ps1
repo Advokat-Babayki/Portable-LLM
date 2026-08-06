@@ -156,6 +156,8 @@ function Run-With-CrashLog {
         $proc = Start-Process -FilePath $BinPath -ArgumentList $CmdArgs -NoNewWindow `
             -PassThru -RedirectStandardOutput $runLog -RedirectStandardError $errLog
         $proc.WaitForExit()
+        # PS 5.1 с -NoNewWindow не обновляет ExitCode без явного Refresh
+        $null = $proc.Refresh()
         $exitCode = $proc.ExitCode
 
         # Показать начало вывода (для проверки "listening")
