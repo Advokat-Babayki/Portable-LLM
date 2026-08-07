@@ -196,6 +196,15 @@ run_llm_server() {
         echo -e "\n[Запуск LLM $selected_model на CPU...]"
     fi
 
+    # Прописываем в opencode.json текущую модель и порт (для интеграции с OpenCode)
+    if [ -f "$SCRIPT_DIR/lib/opencode_update.sh" ]; then
+        local effective_port=8080
+        if [ "$LIB_OK" = true ]; then
+            effective_port=$(find_free_port 8080)
+        fi
+        bash "$SCRIPT_DIR/lib/opencode_update.sh" "$selected_model" "$effective_port" || true
+    fi
+
     if [ "$LIB_OK" = true ]; then
         llm_port=$(find_free_port 8080)
         echo "Адрес веб-интерфейса: http://127.0.0.1:$llm_port"
@@ -215,6 +224,7 @@ run_llm_server() {
             ctx=$(estimate_context "$HW_VULKAN_VRAM_MB" "$HW_RAM_TOTAL_MB")
             run_args=("-m" "../../models/$selected_model" "-ngl" "$ngl" "-c" "$ctx" "-t" "$HW_THREADS" "-b" "512" "-ub" "512" "--path" ".")
             run_args+=("--host" "127.0.0.1" "--port" "$llm_port")
+            run_args+=("--alias" "$selected_model")
             echo "[*] Параметры: ${run_args[*]}"
             if [ "$SILENT" = false ]; then
                 (xdg-open "http://127.0.0.1:$llm_port" >/dev/null 2>&1 &)
@@ -230,6 +240,7 @@ run_llm_server() {
                 run_args+=("--load-mode" "mlock")
             fi
             run_args+=("--host" "127.0.0.1" "--port" "$llm_port")
+            run_args+=("--alias" "$selected_model")
             echo "[*] Параметры: ${run_args[*]}"
             if [ "$SILENT" = false ]; then
                 (xdg-open "http://127.0.0.1:$llm_port" >/dev/null 2>&1 &)
@@ -241,11 +252,11 @@ run_llm_server() {
         if [ "$backend" = "vulkan" ]; then
             cd "$SCRIPT_DIR/bin/linux-vulkan" || return 1
             chmod +x llama-server 2>/dev/null
-            ./llama-server -m "../../models/$selected_model" -ngl 99 -c 8192 --host 127.0.0.1 --port 8080
+            ./llama-server -m "../../models/$selected_model" -ngl 99 -c 8192 --host 127.0.0.1 --port 8080 --alias "$selected_model"
         else
             cd "$SCRIPT_DIR/bin/linux-cpu" || return 1
             chmod +x llama-server 2>/dev/null
-            ./llama-server -m "../../models/$selected_model" -c 8192 --host 127.0.0.1 --port 8080
+            ./llama-server -m "../../models/$selected_model" -c 8192 --host 127.0.0.1 --port 8080 --alias "$selected_model"
         fi
     fi
     cd "$SCRIPT_DIR"

@@ -258,6 +258,11 @@ set "LLM_PORT="
 for /f "usebackq delims=" %%p in (`powershell -NoProfile -ExecutionPolicy Bypass -Command ". '%~dp0lib\common.ps1'; Find-FreePort 8080"`) do set "LLM_PORT=%%p"
 if not defined LLM_PORT set "LLM_PORT=8080"
 
+:: Регистрация текущей модели/порта в opencode.json (интеграция с OpenCode)
+if exist "%~dp0lib\update_opencode.ps1" (
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0lib\update_opencode.ps1" -Model "!SELECTED_MODEL!" -Port !LLM_PORT!
+)
+
 cls
 echo ===================================================
 echo Выбрана модель: !SELECTED_MODEL!
@@ -274,7 +279,7 @@ start /b "" cmd /c "ping -n 12 127.0.0.1 >nul & start "" "" http://127.0.0.1:!LL
 cd /d "%~dp0!LLM_BINDIR!"
 if "!LLM_BACKEND!"=="vulkan" set "GGML_VK_VISIBLE_DEVICES=0"
 set "LLM_EXIT=0"
-llama-server.exe -m "..\..\models\!SELECTED_MODEL!" -c !LLM_CTX! -ngl !LLM_NGL! -t !LLM_THREADS! -b !LLM_BATCH! -ub !LLM_UB! --host 127.0.0.1 --port !LLM_PORT!
+llama-server.exe -m "..\..\models\!SELECTED_MODEL!" -c !LLM_CTX! -ngl !LLM_NGL! -t !LLM_THREADS! -b !LLM_BATCH! -ub !LLM_UB! --host 127.0.0.1 --port !LLM_PORT! --alias "!SELECTED_MODEL!"
 set "LLM_EXIT=!errorlevel!"
 cd /d "%~dp0"
 
@@ -288,6 +293,10 @@ goto llm_menu
 
 :run_llm_legacy
 cls
+:: Регистрация модели/порта 8080 в opencode.json (интеграция с OpenCode)
+if exist "%~dp0lib\update_opencode.ps1" (
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0lib\update_opencode.ps1" -Model "!SELECTED_MODEL!" -Port 8080
+)
 echo ===================================================
 echo Выбрана модель: !SELECTED_MODEL!
 echo ===================================================
@@ -298,9 +307,9 @@ echo.
 cd /d "%~dp0!LLM_BINDIR!"
 if "!LLM_BACKEND!"=="vulkan" (
     set "GGML_VK_VISIBLE_DEVICES=0"
-    llama-server.exe -m "..\..\models\!SELECTED_MODEL!" -ngl 99 -c 2048 -np 1 --host 127.0.0.1 --port 8080
+    llama-server.exe -m "..\..\models\!SELECTED_MODEL!" -ngl 99 -c 2048 -np 1 --host 127.0.0.1 --port 8080 --alias "!SELECTED_MODEL!"
 ) else (
-    llama-server.exe -m "..\..\models\!SELECTED_MODEL!" -c 2048 -np 1 --host 127.0.0.1 --port 8080
+    llama-server.exe -m "..\..\models\!SELECTED_MODEL!" -c 2048 -np 1 --host 127.0.0.1 --port 8080 --alias "!SELECTED_MODEL!"
 )
 set "LLM_EXIT=!errorlevel!"
 cd /d "%~dp0"
