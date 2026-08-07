@@ -1,6 +1,6 @@
 # =====================================================
 # update_opencode.ps1 — updates provider "llama-local" in
-# the project's opencode.json with the currently loaded
+# the GLOBAL opencode config with the currently loaded
 # model id and its port. Uses only built-in PowerShell
 # (works on a fresh Windows, no extra dependencies).
 #
@@ -14,9 +14,13 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$scriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
-$projectDir = Split-Path -Parent $scriptDir
-$configPath = Join-Path $projectDir 'opencode.json'
+# --- Resolve the GLOBAL opencode config (works from any folder) ---
+$configRoot = Join-Path $env:USERPROFILE '.config\opencode'
+$jsonPath   = Join-Path $configRoot 'opencode.json'
+$jsoncPath  = Join-Path $configRoot 'opencode.jsonc'
+$configPath = $jsonPath
+if ((Test-Path $jsoncPath) -and -not (Test-Path $jsonPath)) { $configPath = $jsoncPath }
+if (-not (Test-Path $configRoot)) { New-Item -ItemType Directory -Path $configRoot -Force | Out-Null }
 
 # Set a property, adding it to the object if it does not exist yet.
 function Set-Prop {
@@ -54,6 +58,9 @@ Set-Prop $p 'options' @{ baseURL = "http://127.0.0.1:$Port/v1" }
 $models = @{}
 $models[$Model] = @{ name = $Model }
 Set-Prop $p 'models' $models
+
+# --- Back up the existing global config on first touch only ---
+if ((Test-Path $configPath) -and -not (Test-Path "$configPath.bak")) { Copy-Item $configPath "$configPath.bak" -Force }
 
 # --- Serialize (pretty) and save as UTF-8 without BOM ---
 $json = $config | ConvertTo-Json -Depth 12

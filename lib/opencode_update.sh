@@ -1,40 +1,21 @@
 #!/bin/bash
 # =====================================================
 # opencode_update.sh — manages provider "llama-local" in
-# opencode config with the currently loaded model id and
-# its port. Zero external dependencies: bash, awk, sed.
+# the GLOBAL opencode config with the currently loaded
+# model id and its port. Zero external deps: bash, awk, sed.
 #
-#   PROJECT : <project>/opencode.json  (committed -> works
-#             right after git clone, "из коробки")
 #   GLOBAL  : $XDG_CONFIG_HOME/opencode or ~/.config/opencode
 #
 # Usage:
 #   opencode_update.sh <model_id> <port>
-#       Update the PROJECT config; if the GLOBAL config
-#       already contains "llama.local", keep it in sync.
-#       (Global config is never created/modified unless
-#        the user has opted in by installing the block.)
-#
-#   opencode_update.sh --install-global <model> <port>
-#       Opt-in: create/update "llama.local" in the GLOBAL
-#       config so the local LLM works in every project.
+#       Update "llama-local" in the GLOBAL config only.
+#       The project itself holds no opencode.json.
 # =====================================================
 set -u
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-CONFIG="$PROJECT_DIR/opencode.json"
 GLOBAL_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
 
-MODE="update"
-PARAMS=()
-
-for arg in "$@"; do
-    case "$arg" in
-        --install-global) MODE="install-global" ;;
-        *) PARAMS+=("$arg") ;;
-    esac
-done
+PARAMS=("$@")
 
 MODEL="${PARAMS[0]:-}"
 PORT="${PARAMS[1]:-8080}"
@@ -270,24 +251,12 @@ global_target() {
 }
 
 # ------------------------------------------------------------------
-# Main
+# Main: update only the GLOBAL config so the local LLM works
+# in every project, and no opencode.json lives in this repo.
 # ------------------------------------------------------------------
-if [ "$MODE" = "install-global" ]; then
-    mkdir -p "$GLOBAL_DIR" 2>/dev/null
-    G=$(global_target)
-    backup_if_global "$G"
-    DO_INSERT=1 update_file "$G"
-    echo "[i] локальный LLM доступен во всех папках (global: $G)"
-    exit 0
-fi
-
-# default: update the project config
-DO_INSERT=1 update_file "$CONFIG"
-
-# sync global only if llama-local is already installed there (opt-in)
+mkdir -p "$GLOBAL_DIR" 2>/dev/null
 G=$(global_target)
-if [ -f "$G" ] && grep -q '"llama-local"' "$G"; then
-    backup_if_global "$G"
-    swap_llama "$G"
-fi
+backup_if_global "$G"
+DO_INSERT=1 update_file "$G"
+echo "[i] локальный LLM доступен во всех папках (global: $G)"
 exit 0
