@@ -9,7 +9,9 @@
 param(
     [string]$Model = "",
     [string]$Backend = "cpu",
-    [string]$ModelDir = "models"
+    [string]$ModelDir = "models",
+    [int]$VramMB = -1,
+    [int]$RamMB = 0
 )
 
 # --- значения по умолчанию ---
@@ -27,7 +29,11 @@ try {
     . "$PSScriptRoot\common.ps1"
 
     $sizeMb  = Get-ModelSizeMB -Filename $Model -BaseDir $ModelDir
-    $ctx     = Estimate-Context -VRAMMB $HW_VULKAN_VRAM_MB -RAMMB $HW_RAM_TOTAL_MB
+    # Опциональные переопределения железа (для тестов и ручной настройки):
+    # по умолчанию берутся значения из detect_hw
+    $detVram = if ($VramMB -ge 0) { $VramMB } else { $HW_VULKAN_VRAM_MB }
+    $detRam  = if ($RamMB -gt 0) { $RamMB } else { $HW_RAM_TOTAL_MB }
+    $ctx     = Estimate-Context -VRAMMB $detVram -RAMMB $detRam
 
     $threads = $HW_THREADS
     if ($threads -lt 1) { $threads = 1 }
