@@ -45,8 +45,12 @@ jobs:
           $zip = "$env:TEMP\llama-win-cpu.zip"
           Invoke-WebRequest -Uri 'https://github.com/ggml-org/llama.cpp/releases/download/b9932/llama-b9932-bin-win-cpu-x64.zip' -OutFile $zip
           New-Item -ItemType Directory -Force bin\win-cpu | Out-Null
+          New-Item -ItemType Directory -Force "$env:TEMP\llama-bin" | Out-Null
           Expand-Archive -Path $zip -DestinationPath "$env:TEMP\llama-bin" -Force
-          Copy-Item "$env:TEMP\llama-bin\*\llama-server.exe" bin\win-cpu\ -Force
+          # архив без верхнего каталога: ищем папку с llama-server.exe и копируем содержимое (dll-зависимости ggml)
+          $server = Get-ChildItem "$env:TEMP\llama-bin" -Recurse -Filter 'llama-server.exe' | Select-Object -First 1
+          if (-not $server) { throw "llama-server.exe not found in archive" }
+          Copy-Item "$($server.DirectoryName)\*" bin\win-cpu\ -Recurse -Force
           Get-Item bin\win-cpu\llama-server.exe | Select-Object Name, Length
       - name: Download small test model (~0.4 GB)
         run: |
