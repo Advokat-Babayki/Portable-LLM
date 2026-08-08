@@ -17,7 +17,7 @@ find_free_port() {
     while :; do
         local busy=false
         if [ "$use_probe" = true ]; then
-            if (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
+            if (exec 3<>"/dev/tcp/127.0.0.1/$port"; exec 3>&-) 2>/dev/null; then
                 busy=true
             fi
         elif ss -tuln 2>/dev/null | grep -q ":$port "; then
