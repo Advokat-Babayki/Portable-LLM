@@ -294,13 +294,6 @@ get_model_size_mb() {
     fi
 }
 
-# --- Helper: Get model parameter count from filename ---
-# Returns: number of parameters (e.g., "7B", "0.5B", "32B")
-get_model_params() {
-    local filename="$1"
-    echo "$filename" | grep -oiP '(\d+(?:\.\d+)?)B' | head -1 | grep -oiP '[\d.]+'
-}
-
 # --- Helper: Detect if model is Mixture-of-Experts (MoE) ---
 # Returns: 0 if MoE, 1 if not
 is_moe_model() {
@@ -405,30 +398,6 @@ estimate_moe_ngl() {
     if [ "$ngl" -gt 32 ]; then ngl=32; fi   # Cap MoE GPU layers at 32
     if [ "$ngl" -lt 1 ]; then ngl=1; fi
     echo "$ngl"
-}
-
-# --- Auto-detect CPU binary variant if needed ---
-find_cpu_binary() {
-    local desired_variant="$1"
-    local bin_dir="$SCRIPT_DIR/bin/linux-cpu"
-    case "$desired_variant" in
-        sapphirerapids)
-            for v in sapphirerapids zen4; do
-                if [ -x "$bin_dir/llama-server" ]; then
-                    echo "$bin_dir"
-                    return
-                fi
-            done
-            ;;
-        haswell)
-            if [ -x "$bin_dir/llama-server" ]; then
-                echo "$bin_dir"
-                return
-            fi
-            ;;
-    esac
-    # Fallback
-    echo "$bin_dir"
 }
 
 detect_hardware
