@@ -13,26 +13,10 @@
 # Работает и на Linux (pwsh) — не требует Windows.
 # =====================================================
 $ErrorActionPreference = "Stop"
-$script:failures = 0
+. (Join-Path $PSScriptRoot 'lib\ps-test.ps1')
 
-$root = Split-Path $PSScriptRoot -Parent
 $bat = Join-Path $root 'Windows.bat'
 $verInc = Join-Path $root 'lib\versions.inc'
-
-function Assert-True {
-    param($Cond, [string]$Name)
-    if (-not $Cond) { $script:failures++; Write-Host "FAIL: $Name" }
-    else { Write-Host "OK:   $Name" }
-}
-
-# --- служебная: массив строк без BOM в начале ---
-function Get-ContentClean {
-    param([string]$Path)
-    $enc = [System.Text.Encoding]::UTF8
-    $txt = [System.IO.File]::ReadAllText($Path, $enc)
-    if ($txt -match '^\xEF\xBB\xBF') { $txt = $txt.Substring(1) }
-    return $txt -split "`r?`n"
-}
 
 Write-Host "=== Windows.bat: BOM и кодировка ==="
 $bytes = [System.IO.File]::ReadAllBytes($bat)
@@ -83,11 +67,4 @@ Assert-True ($fbLine -match [regex]::Escape("LLAMA_VERSION=$llamaVer")) "fallbac
 $fbWhLine = ($batLines | Where-Object { $_ -match '^if not defined WHISPER_VERSION set "WHISPER_VERSION=' }) -join ''
 Assert-True ($fbWhLine -match [regex]::Escape("WHISPER_VERSION=$whisperVer")) "fallback WHISPER_VERSION=$whisperVer совпадает с versions.inc"
 
-Write-Host ""
-if ($script:failures -gt 0) {
-    Write-Host "FAILURES: $script:failures"
-    exit 1
-} else {
-    Write-Host "ALL TESTS PASSED"
-    exit 0
-}
+Exit-Tests

@@ -5,24 +5,7 @@
 # =====================================================
 
 $ErrorActionPreference = "Stop"
-$root = Split-Path $PSScriptRoot -Parent
-$script:failures = 0
-
-function Assert-Equal {
-    param($Expected, $Actual, [string]$Name)
-    if ($Expected -ne $Actual) {
-        $script:failures++
-        Write-Host "FAIL: $Name — ожидал '$Expected', получил '$Actual'"
-    } else {
-        Write-Host "OK:   $Name = '$Actual'"
-    }
-}
-
-function Assert-True {
-    param($Cond, [string]$Name)
-    if (-not $Cond) { $script:failures++; Write-Host "FAIL: $Name" }
-    else { Write-Host "OK:   $Name" }
-}
+. (Join-Path $PSScriptRoot 'lib\ps-test.ps1')
 
 Write-Host "=== Загрузка модулей ==="
 . (Join-Path $root 'lib\detect_hw.ps1')
@@ -142,11 +125,4 @@ Assert-True ($bat -match 'versions.inc') 'Windows.bat: читает версии
 $hsOpen = '$content = @' + [char]39
 Assert-True (($bat -notmatch [regex]::Escape($hsOpen)) -and ($bat -notmatch 'WriteAllText')) 'Windows.bat: PS-обёртка удалена'
 
-Write-Host ""
-if ($script:failures -gt 0) {
-    Write-Host "FAILURES: $script:failures"
-    exit 1
-} else {
-    Write-Host "ALL TESTS PASSED"
-    exit 0
-}
+Exit-Tests

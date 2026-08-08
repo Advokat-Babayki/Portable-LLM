@@ -8,26 +8,9 @@
 # =====================================================
 
 $ErrorActionPreference = "Stop"
-$script:failures = 0
+. (Join-Path $PSScriptRoot 'lib\ps-test.ps1')
 $script:work = Join-Path ([System.IO.Path]::GetTempPath()) ("llm_ocu_" + [guid]::NewGuid().ToString('N'))
-$root = Split-Path $PSScriptRoot -Parent
 $update = Join-Path $root 'lib\update_opencode.ps1'
-
-function Assert-Equal {
-    param($Expected, $Actual, [string]$Name)
-    if ($Expected -ne $Actual) {
-        $script:failures++
-        Write-Host "FAIL: $Name — ожидал '$Expected', получил '$Actual'"
-    } else {
-        Write-Host "OK:   $Name = '$Actual'"
-    }
-}
-
-function Assert-True {
-    param($Cond, [string]$Name)
-    if (-not $Cond) { $script:failures++; Write-Host "FAIL: $Name" }
-    else { Write-Host "OK:   $Name" }
-}
 
 # --- Запуск update_opencode.ps1 в изолированном окружении ---
 function Invoke-CfgUpdate {
@@ -127,14 +110,7 @@ try {
     Assert-Equal 'http://127.0.0.1:4444/v1' $jF.provider.'llama-local'.options.baseURL 'f: только jsonc — обновлён jsonc'
     Assert-True (-not (Test-Path $cfgF)) 'f: json не создан'
 
-    Write-Host ""
-    if ($script:failures -gt 0) {
-        Write-Host "FAILURES: $script:failures"
-        exit 1
-    } else {
-        Write-Host "ALL TESTS PASSED"
-        exit 0
-    }
+    Exit-Tests
 } finally {
     Remove-Item -Recurse -Force $script:work -ErrorAction SilentlyContinue
     Remove-Item Env:\USERPROFILE -ErrorAction SilentlyContinue
