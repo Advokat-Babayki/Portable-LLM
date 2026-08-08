@@ -337,8 +337,9 @@ get_moe_expert_count() {
 # Returns: estimated VRAM in MB considering MoE expert activation
 estimate_moe_vram_mb() {
     local filename="$1"
+    local base_dir="${2:-$SCRIPT_DIR/models}"
     local param_mb
-    param_mb=$(get_model_size_mb "$filename")
+    param_mb=$(get_model_size_mb "$filename" "$base_dir")
 
     if ! is_moe_model "$filename"; then
         echo "$param_mb"

@@ -236,7 +236,7 @@ run_llm_server() {
             if is_moe_model "$selected_model"; then
                 experts=$(get_moe_expert_count "$selected_model")
                 [ -z "$experts" ] && experts=8
-                model_mb=$(estimate_moe_vram_mb "$selected_model")
+                model_mb=$(estimate_moe_vram_mb "$selected_model" "$MODELS_DIR")
                 echo "[*] Обнаружена MoE модель ($experts экспертов)"
                 ngl=$(estimate_moe_ngl "$HW_VULKAN_VRAM_MB" "$model_mb" "$experts")
             else
