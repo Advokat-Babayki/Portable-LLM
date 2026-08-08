@@ -417,9 +417,9 @@ if not defined W_PORT set "W_PORT=8081"
 
 echo.
 echo [Запуск Whisper !SELECTED_W_MODEL! на CPU...]
-echo Адрес веб-интерфейса: http://127.0.0.1:!W_PORT!
+echo Адрес веб-интерфейса: http://127.0.0.1:!W_PORT!/ui.html?port=!W_PORT!
 echo (браузер откроется автоматически)
-start /b "" cmd /c "ping -n 8 127.0.0.1 >nul & start "" "" http://127.0.0.1:!W_PORT!"
+start /b "" cmd /c "ping -n 8 127.0.0.1 >nul & start "" "" http://127.0.0.1:!W_PORT!/ui.html?port=!W_PORT!"
 cd /d "%~dp0whisper\bin\win-cpu"
 set "W_EXIT=0"
 whisper-server.exe -m "..\..\models\!SELECTED_W_MODEL!" --host 127.0.0.1 --port !W_PORT! --public "..\.."
