@@ -28,11 +28,13 @@ jobs:
         run: |
           ./tests/windows-unit.ps1
           ./tests/opencode-unit.ps1
+          ./tests/windows-bat-smoke.ps1
       - name: Unit tests on pwsh 7.x
         shell: pwsh
         run: |
           ./tests/windows-unit.ps1
           ./tests/opencode-unit.ps1
+          ./tests/windows-bat-smoke.ps1
 
   server-smoke:
     name: Server smoke (real llama-server.exe)
