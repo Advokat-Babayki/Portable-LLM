@@ -4,17 +4,6 @@
 # NOTE: Expects SCRIPT_DIR to be defined by caller (Lunix.sh)
 # =====================================================
 
-# --- Ensure binaries are executable ---
-ensure_executables() {
-    local dirs=("bin/linux-cpu" "bin/linux-vulkan" "whisper/bin/linux-cpu" "whisper/bin/linux-vulkan")
-    for dir in "${dirs[@]}"; do
-        if [ -d "${SCRIPT_DIR}/${dir}" ]; then
-            chmod +x "${SCRIPT_DIR}/${dir}"/* 2>/dev/null
-            chmod +x "${SCRIPT_DIR}/${dir}/llama-server" "${SCRIPT_DIR}/${dir}/whisper-server" 2>/dev/null
-        fi
-    done
-}
-
 # --- Find a free port starting from base ---
 find_free_port() {
     local base_port=$1
@@ -27,42 +16,6 @@ find_free_port() {
         fi
     done
     echo "$port"
-}
-
-# --- Check if a process is listening ---
-wait_for_server_ready() {
-    local port=$1
-    local max_wait=${2:-60}
-    local waited=0
-    while [ $waited -lt $max_wait ]; do
-        if curl -sf "http://127.0.0.1:$port" >/dev/null 2>&1; then
-            return 0
-        fi
-        if python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:$port', timeout=2)" 2>/dev/null; then
-            return 0
-        fi
-        sleep 2
-        ((waited+=2))
-    done
-    return 1
-}
-
-# --- Scan models in a directory ---
-scan_models() {
-    local dir=$1
-    local extensions=("gguf" "bin")
-    local files=()
-
-    if [ ! -d "$dir" ]; then
-        echo ""
-        return
-    fi
-
-    for ext in "${extensions[@]}"; do
-        while IFS= read -r -d '' f; do
-            basename "$f"
-        done < <(find "$dir" -maxdepth 1 -type f -name "*.$ext" -print0 2>/dev/null)
-    done
 }
 
 # --- Display hardware info summary ---
@@ -78,43 +31,6 @@ print_hw_info() {
     fi
     echo "  Рекомендация: $HW_REC_REASON"
     echo "==================================================="
-}
-
-# --- Select model interactively ---
-select_model() {
-    local dir=$1
-    local prompt=$2
-    shift 2
-
-    mapfile -t MODELS < <(scan_models "$dir")
-
-    if [ ${#MODELS[@]} -eq 0 ]; then
-        echo "[!] ${prompt} папка пуста: $dir" >&2
-        echo "Положите .gguf/.bin файлы в эту папку." >&2
-        read -p "Нажмите Enter для возврата..." >&2
-        return 1
-    fi
-
-    echo "Доступные модели:" >&2
-    for i in "${!MODELS[@]}"; do
-        local size_mb=$(get_model_size_mb "${MODELS[$i]}" "$dir")
-        echo "  $((i+1))) ${MODELS[$i]} (~$size_mb MB)" >&2
-    done
-    echo "  b) Назад" >&2
-    echo "" >&2
-    read -p "Выберите модель (1-${#MODELS[@]}): " choice >&2
-
-    if [[ "$choice" == "b" || "$choice" == "B" ]]; then
-        return 1
-    fi
-
-    if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "${#MODELS[@]}" ]; then
-        echo "Неверный выбор!" >&2
-        sleep 1
-        return 1
-    fi
-
-    echo "${MODELS[$((choice-1))]}"
 }
 
 # --- Run server with crash logging ---
