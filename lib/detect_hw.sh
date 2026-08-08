@@ -233,6 +233,25 @@ estimate_context() {
     fi
 }
 
+# --- Helper: first quant-factor from the shared table lib/quant-factors.tsv ---
+# Single source of truth: same table is used by PowerShell (detect_hw.ps1).
+# Returns factor (e.g. 0.56) or fallback 0.70.
+get_model_quant_factor() {
+    local filename="$1"
+    local fname
+    fname=$(echo "$filename" | tr '[:lower:]' '[:upper:]')
+    local table="${QUANT_TABLE_FILE:-$SCRIPT_DIR/lib/quant-factors.tsv}"
+    [ -f "$table" ] || { echo 0.70; return; }
+    local pat factor
+    while IFS=$'\t' read -r pat factor; do
+        case "$pat" in ''|\#*) continue ;; esac
+        case "$fname" in
+            $pat) echo "$factor"; return ;;
+        esac
+    done < "$table"
+    echo 0.70
+}
+
 # --- Helper: Get model size in MB from filename (with quantization awareness) ---
 # Usage: get_model_size_mb <filename> [base_dir]
 # Returns: estimated VRAM usage in MB considering quantization
@@ -249,44 +268,11 @@ get_model_size_mb() {
         size_num=$(echo "$size_str" | grep -oiP '[\d.]+')
         local param_billions="$size_num"
 
-        # 2. Detect quantization type from filename
-        # Factor = bytes per parameter billion (e.g., 0.56 = 576 bytes/param ≈ 4.5 bits)
-        local quant_factor=0.7
-        case "$(echo "$filename" | tr '[:lower:]' '[:upper:]')" in
-            *IQ4_NL*|*IQ4*) quant_factor=0.52 ;;
-            *Q2_K*|*Q2_K_*|*IQ2_*) quant_factor=1.0 ;;
-            *Q3_K_M*)      quant_factor=0.64 ;;
-            *Q3_K_S*)      quant_factor=0.58 ;;
-            *Q3_K*)        quant_factor=0.61 ;;
-            *Q3_*)         quant_factor=0.59 ;;
-            *Q4_0*|*Q4_1*) quant_factor=0.55 ;;
-            *Q4_K_S*)      quant_factor=0.53 ;;
-            *Q4_K_M*)      quant_factor=0.56 ;;
-            *Q4_K_L*)      quant_factor=0.60 ;;
-            *Q4_K*)        quant_factor=0.57 ;;
-            *Q4_*)         quant_factor=0.55 ;;
-            *Q5_0*|*Q5_1*) quant_factor=0.75 ;;
-            *Q5_K_S*)      quant_factor=0.72 ;;
-            *Q5_K_M*)      quant_factor=0.78 ;;
-            *Q5_K*)        quant_factor=0.75 ;;
-            *Q5_*)         quant_factor=0.76 ;;
-            *Q6_K*)        quant_factor=0.85 ;;
-            *Q6_*)         quant_factor=0.85 ;;
-            *Q8_0*)        quant_factor=1.20 ;;
-            *Q8_1*)        quant_factor=1.19 ;;
-            *Q8_*)         quant_factor=1.20 ;;
-            *Q2*)          quant_factor=1.0 ;; # generic fallback
-            *Q3*)          quant_factor=0.60 ;;
-            *Q4*)          quant_factor=0.56 ;;
-            *Q5*)          quant_factor=0.75 ;;
-            *Q6*)          quant_factor=0.85 ;;
-            *Q8*)          quant_factor=1.20 ;;
-            *F16*|*FP16*)  quant_factor=2.10 ;;
-            *F32*|*FP32*)  quant_factor=4.20 ;;
-            *)             quant_factor=0.70 ;; # Default: assume Q4-ish
-        esac
+        # 2. Quantization factor from the shared table (bash/PS parity, rounding as PS)
+        local quant_factor
+        quant_factor=$(get_model_quant_factor "$filename")
 
-        echo $(awk "BEGIN {printf \"%d\", $param_billions * 1024 * $quant_factor}")
+        echo $(awk "BEGIN {printf \"%.0f\", $param_billions * 1024 * $quant_factor}")
     else
         # No parameter count in filename — try file size on disk
         local full_path="$base_dir/$filename"

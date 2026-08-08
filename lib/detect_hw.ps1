@@ -242,6 +242,26 @@ function Estimate-Context {
     else { return 2048 }
 }
 
+# --- Helper: quant-factor from the shared table lib/quant-factors.tsv ---
+# Single source of truth: same table is used by bash (detect_hw.sh).
+# Returns factor (e.g. 0.56) or fallback 0.70.
+function Get-ModelQuantFactor {
+    param([string]$Filename)
+    $fnameUpper = $Filename.ToUpper()
+    $table = Join-Path $PSScriptRoot 'quant-factors.tsv'
+    if (-not (Test-Path $table)) { return 0.70 }
+    foreach ($line in Get-Content $table) {
+        $line = $line.Trim()
+        if (-not $line -or $line.StartsWith('#')) { continue }
+        $parts = $line -split "`t"
+        if ($parts.Length -lt 2) { continue }
+        $pattern = $parts[0].Trim()
+        $factor  = [double]$parts[1]
+        if ($fnameUpper -like $pattern) { return $factor }
+    }
+    return 0.70
+}
+
 # --- Helper: Get model size in MB from filename (with quantization awareness) ---
 function Get-ModelSizeMB {
     param(
@@ -254,44 +274,8 @@ function Get-ModelSizeMB {
     if ($match.Success) {
         $paramBillions = [double]$match.Groups[1].Value
         
-        # 2. Detect quantization type from filename
-        $quantFactor = 0.7
-        $fnameUpper = $Filename.ToUpper()
-        
-        switch -Regex ($fnameUpper) {
-            {$_ -match "IQ4_NL|IQ4"} { $quantFactor = 0.52; break }
-            {$_ -match "Q2_K|IQ2_"} { $quantFactor = 1.0; break }
-            {$_ -match "Q3_K_M"} { $quantFactor = 0.64; break }
-            {$_ -match "Q3_K_S"} { $quantFactor = 0.58; break }
-            {$_ -match "Q3_K"} { $quantFactor = 0.61; break }
-            {$_ -match "Q3_"} { $quantFactor = 0.59; break }
-            {$_ -match "Q4_0|Q4_1"} { $quantFactor = 0.55; break }
-            {$_ -match "Q4_K_S"} { $quantFactor = 0.53; break }
-            {$_ -match "Q4_K_XL"} { $quantFactor = 0.57; break }
-            {$_ -match "Q4_K_M"} { $quantFactor = 0.56; break }
-            {$_ -match "Q4_K_L"} { $quantFactor = 0.60; break }
-            {$_ -match "Q4_K"} { $quantFactor = 0.57; break }
-            {$_ -match "Q4_"} { $quantFactor = 0.55; break }
-            {$_ -match "Q5_0|Q5_1"} { $quantFactor = 0.75; break }
-            {$_ -match "Q5_K_S"} { $quantFactor = 0.72; break }
-            {$_ -match "Q5_K_M"} { $quantFactor = 0.78; break }
-            {$_ -match "Q5_K"} { $quantFactor = 0.75; break }
-            {$_ -match "Q5_"} { $quantFactor = 0.76; break }
-            {$_ -match "Q6_K"} { $quantFactor = 0.85; break }
-            {$_ -match "Q6_"} { $quantFactor = 0.85; break }
-            {$_ -match "Q8_0"} { $quantFactor = 1.20; break }
-            {$_ -match "Q8_1"} { $quantFactor = 1.19; break }
-            {$_ -match "Q8_"} { $quantFactor = 1.20; break }
-            {$_ -match "Q2_"} { $quantFactor = 1.0; break }
-            {$_ -match "Q3_"} { $quantFactor = 0.60; break }
-            {$_ -match "Q4_"} { $quantFactor = 0.56; break }
-            {$_ -match "Q5_"} { $quantFactor = 0.75; break }
-            {$_ -match "Q6_"} { $quantFactor = 0.85; break }
-            {$_ -match "Q8_"} { $quantFactor = 1.20; break }
-            {$_ -match "F16|FP16"} { $quantFactor = 2.10; break }
-            {$_ -match "F32|FP32"} { $quantFactor = 4.20; break }
-            default { $quantFactor = 0.70 }
-        }
+        # 2. Quantization factor from the shared table (bash/PS parity)
+        $quantFactor = Get-ModelQuantFactor -Filename $Filename
         
         return [int]($paramBillions * 1024 * $quantFactor)
     }
