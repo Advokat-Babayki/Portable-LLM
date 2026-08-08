@@ -21,15 +21,18 @@ README не читает этот контекст; весь девелопер�
 
 ## CI (GitHub Actions) — `.github/workflows/`
 
-- Файлы названы с префиксом `test-*`/`*hello*` и триггерятся **на push в
-  `main`** (не только по расписанию — автозапуск по пушу был целью фикса `67923bb`).
-- Джоб `windows-test.yml` делает два шага:
-  1. `Unit tests` — `tests/windows-unit.ps1` под PowerShell 5.1 **и** pwsh 7.
-  2. `Server smoke` — скачивает llama.cpp (SHA256 pinned), распаковывает и
+- Файлы триггерятся **на push в `main`** (не только по расписанию — автозапуск
+  по пушу был целью фикса `67923bb`), на PR и вручную (`workflow_dispatch`).
+- Джоб `test-linux.yml`: один шаг — `bash tests/run-all.sh` (ставит pwsh
+  через `setup-powershell`). Раннер гоняет `bash -n` + все bash-тесты + все
+  PS-тесты под pwsh и даёт сводку с `exit 0/1`.
+- Джоб `test-windows.yml`:
+  1. `ps-unit` — каждый `tests/*.ps1` отдельным шагом под PowerShell 5.1
+     **и** pwsh 7 (шаги развязаны `if: always()`).
+  2. `server-smoke` — скачивает llama.cpp (SHA256 pinned), распаковывает и
      запускает `llama-server` с моделью, проверяет `http://127.0.0.1:8080/health`.
-- Джоб `test-linux.yml`: `bash -n` всех bash-скриптов + `tests/linux-unit.sh`
-  (паритет Linux-логики с Windows-ожиданиями: Q-факторы, ngl/ctx, MoE, порты,
-  краш-логи).
+- Подробности и конвенции тестов — в `TESTING.md`. Новый тест добавляется в
+  `tests/run-all.sh` (или явно в шаги `test-windows.yml` для Windows-only).
 
 ## Известные грабли (важно для будущих правок)
 
@@ -79,6 +82,8 @@ README не читает этот контекст; весь девелопер�
 
 ```bash
 ./Lunix.sh                                     # локальный запуск (Linux)
+bash tests/run-all.sh                          # все тесты: bash + PS (единый раннер)
+bash tests/run-all.sh --bash                   # только bash-тесты
 pwsh -f tests/windows-unit.ps1                 # unit-тесты Windows-логики
 bash tests/linux-unit.sh                       # unit-тесты Linux-логики
 bash -n lib/opencode_update.sh                 # проверка синтаксиса bash

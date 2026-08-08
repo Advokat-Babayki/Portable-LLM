@@ -4,6 +4,9 @@
 (whisper.cpp) на любом ПК под **Linux** и **Windows**. Без установки, без
 настройки окружения — скачал, запустил, работает.
 
+[![Linux tests](https://github.com/anomalyco/Portable-LLM/actions/workflows/test-linux.yml/badge.svg)](https://github.com/anomalyco/Portable-LLM/actions/workflows/test-linux.yml)
+[![Windows tests](https://github.com/anomalyco/Portable-LLM/actions/workflows/test-windows.yml/badge.svg)](https://github.com/anomalyco/Portable-LLM/actions/workflows/test-windows.yml)
+
 ## Возможности
 
 - 💬 **LLM-чат** через веб-интерфейс (http://127.0.0.1:8080)
@@ -32,9 +35,17 @@ LLM-Legacy/
 │   ├── common.ps1    # общие функции: порты, краш-логи, запуск сервера
 │   └── detect_hw.ps1 # определение железа (CPU/RAM/Vulkan)
 ├── tests/
-│   └── windows-unit.ps1  # unit-тесты (локально: pwsh -f tests/windows-unit.ps1)
+│   ├── run-all.sh            # единый раннер всех тестов (bash + pwsh)
+│   ├── lib/                  # общая инфраструктура тестов (asserts, песочница)
+│   ├── linux-unit.sh         # unit-тесты Linux-логики
+│   ├── windows-unit.ps1      # unit-тесты Windows-логики
+│   ├── linux-cli-test.sh     # CLI-режим Lunix.sh (интеграционный)
+│   ├── linux-download-test.sh# ветка скачивания бинарников
+│   ├── opencode-unit.sh/.ps1 # тесты интеграции с OpenCode
+│   └── windows-bat-smoke.ps1 # целостность Windows.bat
+├── TESTING.md               # как запускать и писать тесты
 ├── .github/
-│   └── workflows/windows-test.yml  # CI: тесты + smoke-запуск сервера
+│   └── workflows/            # CI: test-linux.yml, test-windows.yml
 ├── README.md
 ├── .gitignore
 ├── bin/              # бинарники llama.cpp (СОДЕРЖИМОЕ СКАЧИВАЕТСЯ АВТОМАТИЧЕСКИ)
@@ -85,21 +96,20 @@ chmod +x Lunix.sh
 
 ### Тесты
 
-Windows-ветка — локально под PowerShell 7 / 5.1+:
-
-```powershell
-pwsh -f tests/windows-unit.ps1
-```
-
-Linux-ветка (паритет с Windows-ожиданиями):
+Единый раннер (bash + PS, нужен `pwsh`):
 
 ```bash
-bash tests/linux-unit.sh
+bash tests/run-all.sh   # все тесты; --bash / --ps — только подмножество
 ```
 
-В CI тесты идут автоматически через GitHub Actions: `windows-test.yml`
-(unit на PS 5.1 и pwsh 7 + smoke-запуск llama-server с моделью и проверка
-`/health`, SHA256-pinned) и `test-linux.yml` (`bash -n` + `tests/linux-unit.sh`).
+Инструкция по запуску, конвенциям и добавлению новых тестов — в
+[`TESTING.md`](TESTING.md).
+
+В CI тесты идут автоматически через GitHub Actions на push в `main` (см.
+бейджи выше): `test-linux.yml` гоняет `bash tests/run-all.sh` (все bash-тесты
++ PS под pwsh), `test-windows.yml` — каждый `tests/*.ps1` под PS 5.1 и pwsh 7
++ smoke-запуск реального `llama-server` с моделью и проверку `/health`
+(SHA256-pinned артефакты).
 
 При первом запуске скрипт проверит наличие бинарников в `bin/` и
 `whisper/bin/`. Если их нет — скачает официальные сборки:

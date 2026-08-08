@@ -24,17 +24,26 @@ jobs:
         shell: powershell
     steps:
       - uses: actions/checkout@v4
-      - name: Unit tests on Windows PowerShell 5.1
-        run: |
-          ./tests/windows-unit.ps1
-          ./tests/opencode-unit.ps1
-          ./tests/windows-bat-smoke.ps1
-      - name: Unit tests on pwsh 7.x
+      - name: windows-unit.ps1 (PS 5.1)
+        run: ./tests/windows-unit.ps1
+      - name: opencode-unit.ps1 (PS 5.1)
+        if: always()
+        run: ./tests/opencode-unit.ps1
+      - name: windows-bat-smoke.ps1 (PS 5.1)
+        if: always()
+        run: ./tests/windows-bat-smoke.ps1
+      - name: windows-unit.ps1 (pwsh 7)
+        if: always()
         shell: pwsh
-        run: |
-          ./tests/windows-unit.ps1
-          ./tests/opencode-unit.ps1
-          ./tests/windows-bat-smoke.ps1
+        run: ./tests/windows-unit.ps1
+      - name: opencode-unit.ps1 (pwsh 7)
+        if: always()
+        shell: pwsh
+        run: ./tests/opencode-unit.ps1
+      - name: windows-bat-smoke.ps1 (pwsh 7)
+        if: always()
+        shell: pwsh
+        run: ./tests/windows-bat-smoke.ps1
 
   server-smoke:
     name: Server smoke (real llama-server.exe)

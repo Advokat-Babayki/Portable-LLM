@@ -15,18 +15,14 @@ permissions:
   contents: read
 
 jobs:
-  bash-unit:
-    name: Unit + syntax (bash)
+  tests:
+    name: All tests (bash + pwsh)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Syntax check (bash -n)
-        run: bash -n Lunix.sh lib/*.sh tests/linux-unit.sh tests/linux-cli-test.sh tests/linux-download-test.sh tests/opencode-unit.sh
-      - name: Unit tests (Linux logic parity with Windows)
-        run: bash tests/linux-unit.sh
-      - name: opencode_update.sh unit tests
-        run: bash tests/opencode-unit.sh
-      - name: CLI integration tests (Lunix.sh --no-ui/--silent)
-        run: bash tests/linux-cli-test.sh
-      - name: Download branch tests (ensure_binaries)
-        run: bash tests/linux-download-test.sh
+      - name: Install pwsh
+        uses: actions/setup-powershell@v1
+        with:
+          pwsh-version: latest
+      - name: Run all tests (bash -n + bash suites + PS suites)
+        run: bash tests/run-all.sh
