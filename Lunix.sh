@@ -243,7 +243,7 @@ run_llm_server() {
                 ngl=$(estimate_ngl "$HW_VULKAN_VRAM_MB" "$model_mb")
             fi
             ctx=$(estimate_context "$HW_VULKAN_VRAM_MB" "$HW_RAM_TOTAL_MB")
-            run_args=("-m" "$MODELS_DIR/$selected_model" "-ngl" "$ngl" "-c" "$ctx" "-t" "$HW_THREADS" "-b" "512" "-ub" "512" "--path" ".")
+            run_args=("-m" "$MODELS_DIR/$selected_model" "-ngl" "$ngl" "-c" "$ctx" "-t" "$HW_THREADS" "-b" "512" "-ub" "512")
             run_args+=("--host" "127.0.0.1" "--port" "$llm_port")
             run_args+=("--alias" "$selected_model")
             echo "[*] Параметры: ${run_args[*]}"
@@ -256,7 +256,7 @@ run_llm_server() {
             chmod +x llama-server 2>/dev/null
             model_mb=$(get_model_size_mb "$selected_model" "$MODELS_DIR")
             ctx=$(estimate_context "$HW_VULKAN_VRAM_MB" "$HW_RAM_TOTAL_MB")
-            run_args=("-m" "$MODELS_DIR/$selected_model" "-ngl" "0" "-c" "$ctx" "-t" "$HW_THREADS" "-b" "256" "--path" ".")
+            run_args=("-m" "$MODELS_DIR/$selected_model" "-ngl" "0" "-c" "$ctx" "-t" "$HW_THREADS" "-b" "256")
             if [ "$HW_RAM_TOTAL_MB" -gt $((model_mb * 3)) ]; then
                 run_args+=("--load-mode" "mlock")
             fi
