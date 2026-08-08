@@ -10,25 +10,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT_DIR="$ROOT"
 export SCRIPT_DIR
 
-FAILURES=0
-
-assert_eq() { # $1 expected, $2 actual, $3 name
-    if [ "$1" != "$2" ]; then
-        FAILURES=$((FAILURES+1))
-        echo "FAIL: $3 — ожидал '$1', получил '$2'"
-    else
-        echo "OK:   $3 = '$2'"
-    fi
-}
-
-assert_true() { # $1 cond(string true/false), $2 name
-    if [ "$1" != true ]; then
-        FAILURES=$((FAILURES+1))
-        echo "FAIL: $2"
-    else
-        echo "OK:   $2"
-    fi
-}
+source "$ROOT/tests/lib/bash-assert.sh"
 
 echo "=== Загрузка lib/ ==="
 source "$ROOT/lib/detect_hw.sh"
@@ -81,10 +63,4 @@ OK_FILES=$(ls "$ROOT/logs"/crash_*_TEST_OK.log 2>/dev/null | wc -l)
 assert_eq 0 "$OK_FILES" 'run_with_crash_log: нет отчёта при exit 0'
 rm -f "$ROOT/logs"/crash_*_TEST_CRASH.log "$ROOT/logs"/crash_*_TEST_OK.log
 
-echo ""
-if [ "$FAILURES" -gt 0 ]; then
-    echo "FAILURES: $FAILURES"
-    exit 1
-fi
-echo "ALL TESTS PASSED"
-exit 0
+test_done

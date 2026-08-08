@@ -15,26 +15,9 @@ UPDATE="$ROOT/lib/opencode_update.sh"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-FAILURES=0
+source "$ROOT/tests/lib/bash-assert.sh"
 
 # --- helpers -----------------------------------------------------------
-assert_eq() { # $1 expected, $2 actual, $3 name
-    if [ "$1" != "$2" ]; then
-        FAILURES=$((FAILURES+1))
-        echo "FAIL: $3 — ожидал '$1', получил '$2'"
-    else
-        echo "OK:   $3 = '$2'"
-    fi
-}
-
-assert_true() { # $1 cond(0/ok), $2 name
-    if [ "$1" -eq 0 ]; then
-        echo "OK:   $2"
-    else
-        FAILURES=$((FAILURES+1))
-        echo "FAIL: $2"
-    fi
-}
 
 # config_is_valid: exit 0 если файл — валидный JSON и содержит llama-local
 config_is_valid() {
@@ -234,10 +217,4 @@ OUT="$(XDG_CONFIG_HOME="$WORK/j" bash "$UPDATE" 2>&1 >/dev/null)"
 assert_eq 1 "$?" "j: exit 1 при пустой модели"
 assert_true "$(echo "$OUT" | grep -qi 'модель'; echo $?)" "j: сообщение об ошибке в stderr"
 
-echo ""
-if [ "$FAILURES" -gt 0 ]; then
-    echo "FAILURES: $FAILURES"
-    exit 1
-fi
-echo "ALL TESTS PASSED"
-exit 0
+test_done
