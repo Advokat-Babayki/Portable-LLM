@@ -1,0 +1,26 @@
+name: Linux tests
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+concurrency:
+  group: linux-test
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  bash-unit:
+    name: Unit + syntax (bash)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax check (bash -n)
+        run: bash -n Lunix.sh lib/*.sh tests/linux-unit.sh
+      - name: Unit tests (Linux logic parity with Windows)
+        run: bash tests/linux-unit.sh

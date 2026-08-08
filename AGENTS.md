@@ -25,8 +25,11 @@ README не читает этот контекст; весь девелопер�
   `main`** (не только по расписанию — автозапуск по пушу был целью фикса `67923bb`).
 - Джоб `windows-test.yml` делает два шага:
   1. `Unit tests` — `tests/windows-unit.ps1` под PowerShell 5.1 **и** pwsh 7.
-  2. `Server smoke` — скачивает llama.cpp, распаковывает и запускает
-     `llama-server` с моделью, проверяет `http://127.0.0.1:8080/health`.
+  2. `Server smoke` — скачивает llama.cpp (SHA256 pinned), распаковывает и
+     запускает `llama-server` с моделью, проверяет `http://127.0.0.1:8080/health`.
+- Джоб `test-linux.yml`: `bash -n` всех bash-скриптов + `tests/linux-unit.sh`
+  (паритет Linux-логики с Windows-ожиданиями: Q-факторы, ngl/ctx, MoE, порты,
+  краш-логи).
 
 ## Известные грабли (важно для будущих правок)
 
@@ -77,6 +80,7 @@ README не читает этот контекст; весь девелопер�
 ```bash
 ./Lunix.sh                                     # локальный запуск (Linux)
 pwsh -f tests/windows-unit.ps1                 # unit-тесты Windows-логики
+bash tests/linux-unit.sh                       # unit-тесты Linux-логики
 bash -n lib/opencode_update.sh                 # проверка синтаксиса bash
 git push origin main                           # пуш запускает CI (push-триггер)
 ```

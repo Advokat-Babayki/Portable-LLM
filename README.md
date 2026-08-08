@@ -83,17 +83,23 @@ chmod +x Lunix.sh
 ./Lunix.sh --model m.gguf --silent  # можно комбинировать
 ```
 
-### Тесты (Windows-ветка)
+### Тесты
 
-Локально под PowerShell 7 / 5.1+:
+Windows-ветка — локально под PowerShell 7 / 5.1+:
 
 ```powershell
 pwsh -f tests/windows-unit.ps1
 ```
 
-В CI тесты идут автоматически через GitHub Actions (`.github/workflows/windows-test.yml`):
-unit-тесты на PS 5.1 и pwsh 7 + smoke-запуск llama-server с реальной моделью
-и проверка http://127.0.0.1:8080/health.
+Linux-ветка (паритет с Windows-ожиданиями):
+
+```bash
+bash tests/linux-unit.sh
+```
+
+В CI тесты идут автоматически через GitHub Actions: `windows-test.yml`
+(unit на PS 5.1 и pwsh 7 + smoke-запуск llama-server с моделью и проверка
+`/health`, SHA256-pinned) и `test-linux.yml` (`bash -n` + `tests/linux-unit.sh`).
 
 При первом запуске скрипт проверит наличие бинарников в `bin/` и
 `whisper/bin/`. Если их нет — скачает официальные сборки:
