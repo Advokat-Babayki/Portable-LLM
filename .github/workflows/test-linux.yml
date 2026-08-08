@@ -21,6 +21,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Syntax check (bash -n)
-        run: bash -n Lunix.sh lib/*.sh tests/linux-unit.sh
+        run: bash -n Lunix.sh lib/*.sh tests/linux-unit.sh tests/linux-cli-test.sh tests/linux-download-test.sh tests/opencode-unit.sh
       - name: Unit tests (Linux logic parity with Windows)
         run: bash tests/linux-unit.sh
+      - name: opencode_update.sh unit tests
+        run: bash tests/opencode-unit.sh
+      - name: CLI integration tests (Lunix.sh --no-ui/--silent)
+        run: bash tests/linux-cli-test.sh
+      - name: Download branch tests (ensure_binaries)
+        run: bash tests/linux-download-test.sh
