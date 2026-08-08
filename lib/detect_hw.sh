@@ -13,22 +13,22 @@ detect_hardware() {
 
     if command -v lscpu &>/dev/null; then
         # Multi-language lscpu parsing (English + Russian)
-        cpu_vendor=$(lscpu | grep -m1 -E "Vendor ID|^ID прроизводителя|^Fabricante" | awk -F': *' '{print $2}')
+        cpu_vendor=$(lscpu | grep -m1 -E "Vendor ID|ID произвед|Производите|Fabricante" | awk -F': *' '{print $2}')
         cpu_flags=$(lscpu | grep -m1 -E "^Flags|^Флаги" | awk -F': *' '{print $2}')
         # Fallback to /proc/cpuinfo for flags if lscpu parsing failed
         if [ -z "$cpu_flags" ] && [ -f /proc/cpuinfo ]; then
             cpu_flags=$(grep -m1 "^flags" /proc/cpuinfo | awk -F': *' '{print $2}')
         fi
-        virt_cores=$(lscpu | grep -m1 -E "^CPU\(s\)|^Потоков" | awk -F': *' '{print $2}')
+        virt_cores=$(lscpu | grep -m1 -E "^CPU\(s\)|^Процессор|^Потоков|Потоки" | awk -F': *' '{print $2}')
         # Fallback to /proc/cpuinfo for virtual cores
         if [ -z "$virt_cores" ] && [ -f /proc/cpuinfo ]; then
             virt_cores=$(grep -c "^processor" /proc/cpuinfo)
         fi
         # Physical cores: from "Ядер на сокет" * "Сокетов" or fallback
         local cores_per_socket
-        cores_per_socket=$(lscpu | grep -m1 -E "^Core\(s\) per socket|^Ядер на сокет" | awk -F': *' '{print $2}')
-        local sockets
-        sockets=$(lscpu | grep -m1 -E "^Socket\(s\):|^Сокетов:" | awk -F': *' '{print $2}')
+cores_per_socket=$(lscpu | grep -m1 -E "^Core\(s\) per socket|^Ядер на сокет|^Ядра на сокет" | awk -F': *' '{print $2}')
+local sockets
+sockets=$(lscpu | grep -m1 -E "^Socket\(s\):|^Сокетов:|^Гнёзд" | awk -F': *' '{print $2}')
         if [ -n "$cores_per_socket" ] && [ -n "$sockets" ]; then
             phys_cores=$((cores_per_socket * sockets))
         else
