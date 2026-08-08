@@ -15,11 +15,13 @@ param(
 $ErrorActionPreference = 'Stop'
 
 # --- Resolve the GLOBAL opencode config (works from any folder) ---
+# Priority matches bash lib/opencode_update.sh: .jsonc preferred over .json,
+# fallback to .json (fresh) when neither exists.
 $configRoot = Join-Path $env:USERPROFILE '.config\opencode'
 $jsonPath   = Join-Path $configRoot 'opencode.json'
 $jsoncPath  = Join-Path $configRoot 'opencode.jsonc'
 $configPath = $jsonPath
-if ((Test-Path $jsoncPath) -and -not (Test-Path $jsonPath)) { $configPath = $jsoncPath }
+if (Test-Path $jsoncPath) { $configPath = $jsoncPath }
 if (-not (Test-Path $configRoot)) { New-Item -ItemType Directory -Path $configRoot -Force | Out-Null }
 
 # Set a property, adding it to the object if it does not exist yet.
