@@ -7,8 +7,8 @@ README не читает этот контекст; весь девелопер�
 ## Что это
 
 Портативный лаунчер для llama.cpp (LLM) и whisper.cpp (распознавание речи):
-- **Linux** — `Lunix.sh` (bash); **Windows** — `Windows.bat` (PowerShell-бутстрап,
-  при запуске переписывает себя в cmd-скрипт).
+- **Linux** — `Lunix.sh` (bash); **Windows** — `Windows.bat` (чистый
+  cmd-скрипт, без PowerShell-обёртки).
 - Бинарники и модели **не хранятся в Git**. При первом запуске скачиваются
   сборки llama.cpp/whisper.cpp из официальных `ggml-org` релизов в `bin/` и
   `whisper/bin/`. Пользователь кладёт `.gguf` (LLM) / `.bin` (Whisper) сам.

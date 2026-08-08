@@ -131,28 +131,16 @@ $whisperV = ($inc | Where-Object { $_ -match '^\s*WHISPER_VERSION=(.+)$' } | Sel
 Assert-True ($null -ne $llamaV -and $llamaV -match '=\S') 'versions.inc: LLAMA_VERSION задана'
 Assert-True ($null -ne $whisperV -and $whisperV -match '=\S') 'versions.inc: WHISPER_VERSION задана'
 
-Write-Host "=== Windows.bat: самогенерация через heredoc ==="
-$tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("llm_bat_" + [guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory $tmp | Out-Null
-Copy-Item (Join-Path $root 'Windows.bat') $tmp
-Push-Location $tmp
-try {
-    if ($env:OS -eq 'Windows_NT') {
-        & powershell -NoProfile -ExecutionPolicy Bypass -File .\Windows.bat
-    } else {
-        & pwsh -NoProfile -File ./Windows.bat
-    }
-    $gen = Get-Content .\Windows.bat -Raw
-    Assert-True ($gen -match 'goto main_menu') 'Windows.bat: сгенерирован cmd-скрипт'
-    Assert-True ($gen -match 'autotune.ps1') 'Windows.bat: содержит автотюн'
-    Assert-True ($gen -match 'Find-FreePort') 'Windows.bat: содержит свободные порты'
-    Assert-True ($gen -match 'New-CrashReport') 'Windows.bat: содержит краш-логи'
-    Assert-True ($gen -match 'start /b "" cmd /c "ping') 'Windows.bat: содержит автобраузер'
-    Assert-True ($gen -match 'versions.inc') 'Windows.bat: читает версии из lib\versions.inc'
-} finally {
-    Pop-Location
-    Remove-Item -Recurse -Force $tmp
-}
+Write-Host "=== Windows.bat: чистый cmd-скрипт (без PS-обёртки) ==="
+$bat = Get-Content (Join-Path $root 'Windows.bat') -Raw
+Assert-True ($bat -match 'goto main_menu') 'Windows.bat: cmd-скрипт (goto main_menu)'
+Assert-True ($bat -match 'autotune.ps1') 'Windows.bat: содержит автотюн'
+Assert-True ($bat -match 'Find-FreePort') 'Windows.bat: содержит свободные порты'
+Assert-True ($bat -match 'New-CrashReport') 'Windows.bat: содержит краш-логи'
+Assert-True ($bat -match 'start /b "" cmd /c "ping') 'Windows.bat: содержит автобраузер'
+Assert-True ($bat -match 'versions.inc') 'Windows.bat: читает версии из lib\versions.inc'
+$hsOpen = '$content = @' + [char]39
+Assert-True (($bat -notmatch [regex]::Escape($hsOpen)) -and ($bat -notmatch 'WriteAllText')) 'Windows.bat: PS-обёртка удалена'
 
 Write-Host ""
 if ($script:failures -gt 0) {
