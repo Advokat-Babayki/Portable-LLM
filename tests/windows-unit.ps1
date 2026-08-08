@@ -124,6 +124,13 @@ if ($env:OS -eq 'Windows_NT') {
     Write-Host "SKIP: cmd недоступен на Linux"
 }
 
+Write-Host "=== lib/versions.inc (единый источник версий) ==="
+$inc = Get-Content (Join-Path $root 'lib\versions.inc') -ErrorAction SilentlyContinue
+$llamaV = ($inc | Where-Object { $_ -match '^\s*LLAMA_VERSION=(.+)$' } | Select-Object -First 1)
+$whisperV = ($inc | Where-Object { $_ -match '^\s*WHISPER_VERSION=(.+)$' } | Select-Object -First 1)
+Assert-True ($null -ne $llamaV -and $llamaV -match '=\S') 'versions.inc: LLAMA_VERSION задана'
+Assert-True ($null -ne $whisperV -and $whisperV -match '=\S') 'versions.inc: WHISPER_VERSION задана'
+
 Write-Host "=== Windows.bat: самогенерация через heredoc ==="
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("llm_bat_" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory $tmp | Out-Null
@@ -141,6 +148,7 @@ try {
     Assert-True ($gen -match 'Find-FreePort') 'Windows.bat: содержит свободные порты'
     Assert-True ($gen -match 'New-CrashReport') 'Windows.bat: содержит краш-логи'
     Assert-True ($gen -match 'start /b "" cmd /c "ping') 'Windows.bat: содержит автобраузер'
+    Assert-True ($gen -match 'versions.inc') 'Windows.bat: читает версии из lib\versions.inc'
 } finally {
     Pop-Location
     Remove-Item -Recurse -Force $tmp

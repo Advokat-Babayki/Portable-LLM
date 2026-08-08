@@ -12,8 +12,9 @@ README не читает этот контекст; весь девелопер�
 - Бинарники и модели **не хранятся в Git**. При первом запуске скачиваются
   сборки llama.cpp/whisper.cpp из официальных `ggml-org` релизов в `bin/` и
   `whisper/bin/`. Пользователь кладёт `.gguf` (LLM) / `.bin` (Whisper) сам.
-- Версии бинарников задаются в переменных `LLAMA_VERSION` / `WHISPER_VERSION`
-  в начале `Lunix.sh` и `Windows.bat`.
+- Версии бинарников задаются в **`lib/versions.inc`** (единый источник:
+  `Lunix.sh` — `source`, `Windows.bat` — `findstr` с фолбэком, CI читает
+  оттуда же). Не хардкодь версии в трёх местах.
 - Общая Windows-логика вынесена в `lib/*.ps1`: `common.ps1` (порты, краш-логи,
   запуск сервера), `detect_hw.ps1` (железо), `autotune.ps1` (подбор `LLM_CTX`,
   `LLM_NGL` и т.д.).

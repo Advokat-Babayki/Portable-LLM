@@ -9,11 +9,17 @@ cd /d "%~dp0"
 :: ПРОВЕРКА И СКАЧИВАНИЕ БИНАРНИКОВ (при первом запуске)
 :: Бинарники НЕ лежат в репозитории — берём официальные
 :: сборки llama.cpp и whisper.cpp с GitHub.
-:: Обновление: поменяй версии ниже и удали папки bin\ и
+:: Версии — единый источник lib\versions.inc (для всех ОС).
+:: Обновление: поменяй версии там и удали папки bin\ и
 :: whisper\bin\ (или отдельные подпапки).
 :: =====================================================
-set "LLAMA_VERSION=b9932"
-set "WHISPER_VERSION=v1.9.2"
+set "VERSFILE=%~dp0lib\versions.inc"
+set "LLAMA_VERSION="
+set "WHISPER_VERSION="
+for /f "tokens=1,* delims==" %%a in ('findstr /b "LLAMA_VERSION=" "%VERSFILE%" 2^>nul') do set "LLAMA_VERSION=%%b"
+for /f "tokens=1,* delims==" %%a in ('findstr /b "WHISPER_VERSION=" "%VERSFILE%" 2^>nul') do set "WHISPER_VERSION=%%b"
+if not defined LLAMA_VERSION set "LLAMA_VERSION=b9932"
+if not defined WHISPER_VERSION set "WHISPER_VERSION=v1.9.2"
 set "LLAMA_URL_BASE=https://github.com/ggml-org/llama.cpp/releases/download/%LLAMA_VERSION%"
 set "WHISPER_URL_BASE=https://github.com/ggml-org/whisper.cpp/releases/download/%WHISPER_VERSION%"
 

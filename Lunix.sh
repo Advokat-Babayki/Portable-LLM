@@ -44,10 +44,14 @@ done
 #  НАСТРОЙКИ БИНАРНИКОВ
 #  Бинарники НЕ лежат в репозитории — при первом запуске скрипт
 #  скачивает официальные сборки llama.cpp и whisper.cpp.
-#  Вышла новая версия — поменяй версию ниже и перезапусти скрипт.
+#  Версии — единый источник lib/versions.inc (для всех ОС):
+#  вышла новая версия — поменяй там и перезапусти скрипт.
 # ============================================================
-LLAMA_VERSION="b9932"      # https://github.com/ggml-org/llama.cpp/releases
-WHISPER_VERSION="v1.9.2"   # https://github.com/ggml-org/whisper.cpp/releases
+if [ -f "$SCRIPT_DIR/lib/versions.inc" ]; then
+    source "$SCRIPT_DIR/lib/versions.inc"
+fi
+LLAMA_VERSION="${LLAMA_VERSION:-b9932}"      # https://github.com/ggml-org/llama.cpp/releases
+WHISPER_VERSION="${WHISPER_VERSION:-v1.9.2}" # https://github.com/ggml-org/whisper.cpp/releases
 
 LLAMA_URL_BASE="https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_VERSION}"
 WHISPER_URL_BASE="https://github.com/ggml-org/whisper.cpp/releases/download/${WHISPER_VERSION}"

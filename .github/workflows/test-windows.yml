@@ -39,11 +39,14 @@ jobs:
         shell: powershell
     steps:
       - uses: actions/checkout@v4
-      - name: Download llama.cpp win-cpu binary (b9932)
+      - name: Download llama.cpp win-cpu binary (from lib/versions.inc)
         run: |
           $ProgressPreference = 'SilentlyContinue'
+          $ver = ((Get-Content lib\versions.inc | Where-Object { $_ -match '^LLAMA_VERSION=' }) -split '=',2)[1]
+          if (-not $ver) { throw 'LLAMA_VERSION not found in lib\versions.inc' }
           $zip = "$env:TEMP\llama-win-cpu.zip"
-          Invoke-WebRequest -Uri 'https://github.com/ggml-org/llama.cpp/releases/download/b9932/llama-b9932-bin-win-cpu-x64.zip' -OutFile $zip
+          "Downloading llama.cpp $ver"
+          Invoke-WebRequest -Uri "https://github.com/ggml-org/llama.cpp/releases/download/$ver/llama-$ver-bin-win-cpu-x64.zip" -OutFile $zip
           New-Item -ItemType Directory -Force bin\win-cpu | Out-Null
           New-Item -ItemType Directory -Force "$env:TEMP\llama-bin" | Out-Null
           Expand-Archive -Path $zip -DestinationPath "$env:TEMP\llama-bin" -Force

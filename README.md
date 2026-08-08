@@ -100,8 +100,11 @@ unit-тесты на PS 5.1 и pwsh 7 + smoke-запуск llama-server с ре�
 
 | Компонент | Версия | Источник |
 |---|---|---|
-| llama.cpp | `b9932` | github.com/ggml-org/llama.cpp/releases |
-| whisper.cpp | `v1.9.2` | github.com/ggml-org/whisper.cpp/releases |
+| llama.cpp | см. `lib/versions.inc` | github.com/ggml-org/llama.cpp/releases |
+| whisper.cpp | см. `lib/versions.inc` | github.com/ggml-org/whisper.cpp/releases |
+
+Версии бинарников заданы **в одном месте — `lib/versions.inc`** (читается и
+Linux-скриптом, и Windows-лаунчером, и CI).
 
 Для скачивания нужен интернет и `curl` (Linux — `wget` как запасной;
 Windows — встроенный `curl.exe`, запасной вариант PowerShell). Распакованный
@@ -184,10 +187,7 @@ whisper/models/
 
 Вышла новая версия llama.cpp / whisper.cpp?
 
-1. Откройте свой лаунчер и поменяйте переменные версий:
-
-   - `Lunix.sh`: `LLAMA_VERSION="..."` и `WHISPER_VERSION="..."` (в начале файла)
-   - `Windows.bat`: те же переменные, тоже в начале
+1. Поменяйте версии в **`lib/versions.inc`** (это единственный источник их).
 
 2. Удалите старые бинарники (принудительная перезагрузка):
 
