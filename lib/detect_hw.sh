@@ -13,7 +13,13 @@ detect_hardware() {
 
     if command -v lscpu &>/dev/null; then
         # Multi-language lscpu parsing (English + Russian)
-        cpu_vendor=$(lscpu | grep -m1 -E "Vendor ID|ID произвед|Производите|Fabricante" | awk -F': *' '{print $2}')
+        # ВАЖНО: реальный ru-локаل util-linux выводит искажённое "ID прроизводителя"
+        # (с двумя "р"), поэтому берём общий фрагмент "изводител", а не полное слово.
+        cpu_vendor=$(lscpu | grep -m1 -E "Vendor ID|изводител|Производите|Fabricante" | awk -F': *' '{print $2}')
+        # Fallback на /proc/cpuinfo, если lscpu-строка не распарсилась
+        if [ -z "$cpu_vendor" ] && [ -f /proc/cpuinfo ]; then
+            cpu_vendor=$(grep -m1 "^vendor_id" /proc/cpuinfo | awk -F': *' '{print $2}')
+        fi
         cpu_flags=$(lscpu | grep -m1 -E "^Flags|^Флаги" | awk -F': *' '{print $2}')
         # Fallback to /proc/cpuinfo for flags if lscpu parsing failed
         if [ -z "$cpu_flags" ] && [ -f /proc/cpuinfo ]; then
