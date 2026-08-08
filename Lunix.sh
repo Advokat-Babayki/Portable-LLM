@@ -243,7 +243,7 @@ run_llm_server() {
                 ngl=$(estimate_ngl "$HW_VULKAN_VRAM_MB" "$model_mb")
             fi
             ctx=$(estimate_context "$HW_VULKAN_VRAM_MB" "$HW_RAM_TOTAL_MB")
-            run_args=("-m" "../../models/$selected_model" "-ngl" "$ngl" "-c" "$ctx" "-t" "$HW_THREADS" "-b" "512" "-ub" "512" "--path" ".")
+            run_args=("-m" "$MODELS_DIR/$selected_model" "-ngl" "$ngl" "-c" "$ctx" "-t" "$HW_THREADS" "-b" "512" "-ub" "512" "--path" ".")
             run_args+=("--host" "127.0.0.1" "--port" "$llm_port")
             run_args+=("--alias" "$selected_model")
             echo "[*] Параметры: ${run_args[*]}"
@@ -256,7 +256,7 @@ run_llm_server() {
             chmod +x llama-server 2>/dev/null
             model_mb=$(get_model_size_mb "$selected_model" "$MODELS_DIR")
             ctx=$(estimate_context "$HW_VULKAN_VRAM_MB" "$HW_RAM_TOTAL_MB")
-            run_args=("-m" "../../models/$selected_model" "-ngl" "0" "-c" "$ctx" "-t" "$HW_THREADS" "-b" "256" "--path" ".")
+            run_args=("-m" "$MODELS_DIR/$selected_model" "-ngl" "0" "-c" "$ctx" "-t" "$HW_THREADS" "-b" "256" "--path" ".")
             if [ "$HW_RAM_TOTAL_MB" -gt $((model_mb * 3)) ]; then
                 run_args+=("--load-mode" "mlock")
             fi
@@ -273,11 +273,11 @@ run_llm_server() {
         if [ "$backend" = "vulkan" ]; then
             cd "$SCRIPT_DIR/bin/linux-vulkan" || return 1
             chmod +x llama-server 2>/dev/null
-            ./llama-server -m "../../models/$selected_model" -ngl 99 -c 8192 --host 127.0.0.1 --port 8080 --alias "$selected_model"
+            ./llama-server -m "$MODELS_DIR/$selected_model" -ngl 99 -c 8192 --host 127.0.0.1 --port 8080 --alias "$selected_model"
         else
             cd "$SCRIPT_DIR/bin/linux-cpu" || return 1
             chmod +x llama-server 2>/dev/null
-            ./llama-server -m "../../models/$selected_model" -c 8192 --host 127.0.0.1 --port 8080 --alias "$selected_model"
+            ./llama-server -m "$MODELS_DIR/$selected_model" -c 8192 --host 127.0.0.1 --port 8080 --alias "$selected_model"
         fi
     fi
     cd "$SCRIPT_DIR"
@@ -298,7 +298,7 @@ run_whisper_server() {
         echo "Адрес веб-интерфейса: http://127.0.0.1:$whisper_port"
         cd "$SCRIPT_DIR/whisper/bin/linux-cpu" || return 1
         chmod +x whisper-server 2>/dev/null
-        run_args=("-m" "../../models/$selected_model" "--host" "127.0.0.1" "--port" "$whisper_port" "--public" "../../")
+        run_args=("-m" "$WHISPER_MODELS_DIR/$selected_model" "--host" "127.0.0.1" "--port" "$whisper_port" "--public" "../../")
         echo "[*] Параметры: ${run_args[*]}"
         if [ "$SILENT" = false ]; then
             ui_url="http://127.0.0.1:$whisper_port/ui.html?port=$whisper_port"
@@ -309,7 +309,7 @@ run_whisper_server() {
         echo "Адрес веб-интерфейса: http://127.0.0.1:8081"
         cd "$SCRIPT_DIR/whisper/bin/linux-cpu" || return 1
         chmod +x whisper-server 2>/dev/null
-        ./whisper-server -m "../../models/$selected_model" --host 127.0.0.1 --port 8081
+        ./whisper-server -m "$WHISPER_MODELS_DIR/$selected_model" --host 127.0.0.1 --port 8081
     fi
     cd "$SCRIPT_DIR"
 }
