@@ -20,9 +20,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install pwsh
-        uses: actions/setup-powershell@v1
-        with:
-          pwsh-version: latest
       - name: Run all tests (bash -n + bash suites + PS suites)
         run: bash tests/run-all.sh
