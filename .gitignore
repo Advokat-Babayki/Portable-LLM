@@ -31,6 +31,8 @@ whisper/bin/**
 # Персональная интеграция с OpenCode — пишется только в глобальный конфиг
 opencode.json
 opencode.jsonc
+# Снимок проекта (весь код + структура) — только для локального анализа, не пушится
+docs/project-full.md
 logs/
 *.log
 *.tmp
