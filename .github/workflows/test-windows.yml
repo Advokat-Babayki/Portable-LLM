@@ -39,14 +39,21 @@ jobs:
         shell: powershell
     steps:
       - uses: actions/checkout@v4
-      - name: Download llama.cpp win-cpu binary (from lib/versions.inc)
+      - name: Download llama.cpp win-cpu binary (pinned SHA256, TLS)
         run: |
           $ProgressPreference = 'SilentlyContinue'
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
           $ver = ((Get-Content lib\versions.inc | Where-Object { $_ -match '^LLAMA_VERSION=' }) -split '=',2)[1]
+          $expected = ((Get-Content lib\versions.inc | Where-Object { $_ -match '^LLAMA_WIN_CPU_SHA256=' }) -split '=',2)[1]
           if (-not $ver) { throw 'LLAMA_VERSION not found in lib\versions.inc' }
+          if (-not $expected) { throw 'LLAMA_WIN_CPU_SHA256 not found in lib\versions.inc' }
           $zip = "$env:TEMP\llama-win-cpu.zip"
-          "Downloading llama.cpp $ver"
-          Invoke-WebRequest -Uri "https://github.com/ggml-org/llama.cpp/releases/download/$ver/llama-$ver-bin-win-cpu-x64.zip" -OutFile $zip
+          "Downloading llama.cpp $ver (win-cpu-x64)"
+          Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/ggml-org/llama.cpp/releases/download/$ver/llama-$ver-bin-win-cpu-x64.zip" -OutFile $zip
+          $size = (Get-Item $zip).Length
+          if ($size -lt 1MB) { throw "Downloaded file too small ($size bytes) - probably an HTML/error page" }
+          $actual = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
+          if ($actual -ne $expected) { throw "SHA256 mismatch for llama zip: got $actual, expected $expected" }
           New-Item -ItemType Directory -Force bin\win-cpu | Out-Null
           New-Item -ItemType Directory -Force "$env:TEMP\llama-bin" | Out-Null
           Expand-Archive -Path $zip -DestinationPath "$env:TEMP\llama-bin" -Force
@@ -55,12 +62,17 @@ jobs:
           if (-not $server) { throw "llama-server.exe not found in archive" }
           Copy-Item "$($server.DirectoryName)\*" bin\win-cpu\ -Recurse -Force
           Get-Item bin\win-cpu\llama-server.exe | Select-Object Name, Length
-      - name: Download small test model (~0.4 GB)
+      - name: Download small test model (pinned SHA256 from HF)
         run: |
           $ProgressPreference = 'SilentlyContinue'
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
           New-Item -ItemType Directory -Force models | Out-Null
-          Invoke-WebRequest -Uri 'https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf' -OutFile 'models\qwen2.5-coder-0.5b-instruct-q4_k_m.gguf'
-          Get-Item 'models\qwen2.5-coder-0.5b-instruct-q4_k_m.gguf' | Select-Object Name, Length
+          $out = 'models\qwen2.5-coder-0.5b-instruct-q4_k_m.gguf'
+          Invoke-WebRequest -UseBasicParsing -Uri 'https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf' -OutFile $out
+          $mExpected = '1d9614638d18024d0fbb36575a15f1302a3adf044df10345688ec4f6e1c4ff32'
+          $mActual = (Get-FileHash -Algorithm SHA256 $out).Hash.ToLower()
+          if ($mActual -ne $mExpected) { throw "SHA256 mismatch for test model: got $mActual" }
+          Get-Item $out | Select-Object Name, Length
       - name: Boot server with autotune params and check /health
         run: |
           $kv = & powershell -NoProfile -ExecutionPolicy Bypass -File lib\autotune.ps1 -Model 'qwen2.5-coder-0.5b-instruct-q4_k_m.gguf' -Backend cpu -ModelDir models
