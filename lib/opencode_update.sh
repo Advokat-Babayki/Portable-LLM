@@ -72,21 +72,45 @@ swap_llama() {
 
     awk -v blk="$blk" '
     function bcount(l){ t=l; return (gsub(/{/,"{",t) - gsub(/}/,"}",t)) }
+    # load the new block lines into newblk[] up front
+    function blockinit(){
+        nb=0
+        while ((getline line < blk) > 0) newblk[nb++]=line
+    }
+    # print the new block; "comma" appends a trailing comma to the last line
+    function emit(comma){
+        for (i=0;i<nb;i++) {
+            if (i==nb-1 && comma) printf "%s,\n", newblk[i]
+            else print newblk[i]
+        }
+    }
+    BEGIN { blockinit() }
     {
         if (!ind && $0 ~ /"llama-local"[[:space:]]*:[[:space:]]*\{/) {
-            dep=bcount($0); found=1; emit()
-            if (dep <= 0) ind = 0   # whole object was on this single line
-            else          ind = 1
+            dep=bcount($0); found=1
+            if (dep <= 0) {          # whole block was on this single line
+                emit(($0 ~ /,\s*$/))
+                next
+            }
+            insum=1                  # consume until matching close
+            pending=1
             next
         }
-        if (ind) {
+        if (insum) {
             dep += bcount($0)
-            if (dep <= 0) ind = 0
+            if (dep <= 0) {
+                # old block closed here; if it ended with a comma, more keys
+                # follow inside "provider" and the new block must keep one
+                emit(($0 ~ /,\s*$/))
+                insum=0; pending=0
+            }
             next
         }
         print
     }
-    function emit() { while ((getline line < blk) > 0) print line }
+    END {
+        if (pending) emit(0)   # unterminated block (broken input) — print anyway
+    }
     ' "$file" > "$tmp"
     local rc=$?
     rm -f "$blk"
