@@ -90,10 +90,14 @@ download_binaries() {
     archive="$tmp_dir/$(basename "$url")"
 
     if command -v curl >/dev/null 2>&1; then
-        curl -fSL --retry 5 --connect-timeout 15 -o "$archive" "$url" || {
+        local curl_quiet=""
+        [ "$SILENT" = true ] && curl_quiet="-s"
+        curl $curl_quiet -fSL --retry 5 --connect-timeout 15 -o "$archive" "$url" || {
             echo "[!] Ошибка скачивания: $url"; rm -rf "$tmp_dir"; return 1; }
     elif command -v wget >/dev/null 2>&1; then
-        wget -O "$archive" --tries=5 --timeout=15 "$url" || {
+        local wget_quiet=""
+        [ "$SILENT" = true ] && wget_quiet="-q"
+        wget $wget_quiet -O "$archive" --tries=5 --timeout=15 "$url" || {
             echo "[!] Ошибка скачивания: $url"; rm -rf "$tmp_dir"; return 1; }
     else
         echo "[!] Не найден ни curl, ни wget. Установите один из них, например:"
