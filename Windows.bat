@@ -423,7 +423,7 @@ echo (браузер откроется автоматически)
 start /b "" cmd /c "ping -n 8 127.0.0.1 >nul & start "" "" http://127.0.0.1:!W_PORT!"
 cd /d "%~dp0whisper\bin\win-cpu"
 set "W_EXIT=0"
-whisper-server.exe -m "..\..\models\!SELECTED_W_MODEL!" --host 127.0.0.1 --port !W_PORT!
+whisper-server.exe -m "..\..\models\!SELECTED_W_MODEL!" --host 127.0.0.1 --port !W_PORT! --public "..\.."
 set "W_EXIT=!errorlevel!"
 cd /d "%~dp0"
 echo.

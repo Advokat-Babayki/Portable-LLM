@@ -284,7 +284,7 @@ run_whisper_server() {
         echo "Адрес веб-интерфейса: http://127.0.0.1:$whisper_port"
         cd "$SCRIPT_DIR/whisper/bin/linux-cpu" || return 1
         chmod +x whisper-server 2>/dev/null
-        run_args=("-m" "../../models/$selected_model" "--host" "127.0.0.1" "--port" "$whisper_port" "--public" ".")
+        run_args=("-m" "../../models/$selected_model" "--host" "127.0.0.1" "--port" "$whisper_port" "--public" "../../")
         echo "[*] Параметры: ${run_args[*]}"
         if [ "$SILENT" = false ]; then
             ui_url="http://127.0.0.1:$whisper_port/ui.html?port=$whisper_port"
