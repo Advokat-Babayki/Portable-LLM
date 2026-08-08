@@ -162,6 +162,9 @@ ensure_binaries() {
         echo "      llama.cpp:   https://github.com/ggml-org/llama.cpp/releases"
         echo "      whisper.cpp: https://github.com/ggml-org/whisper.cpp/releases"
         echo "    Распаковать их нужно в bin/ и whisper/bin/."
+        if [ "$NO_UI" = true ]; then
+            exit 1   # headless/CLI-режим: не ждём Enter
+        fi
         read -p "Нажмите Enter для выхода..."
         exit 1
     fi
