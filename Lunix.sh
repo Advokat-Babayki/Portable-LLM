@@ -27,8 +27,18 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --no-ui)      NO_UI=true; shift ;;
         --silent)     NO_UI=true; SILENT=true; shift ;;
-        --model)      CLI_MODEL="$2"; shift 2 ;;
-        --backend)    CLI_BACKEND="$2"; shift 2 ;;
+        --model)
+            if [ $# -lt 2 ]; then
+                echo "[!] Ключу --model не хватает значения (имя файла модели)"
+                exit 1
+            fi
+            CLI_MODEL="$2"; shift 2 ;;
+        --backend)
+            if [ $# -lt 2 ]; then
+                echo "[!] Ключу --backend не хватает значения (vulkan|cpu)"
+                exit 1
+            fi
+            CLI_BACKEND="$2"; shift 2 ;;
         --help|-h)
             echo "Использование: $0 [--no-ui] [--silent] [--model FILE] [--backend vulkan|cpu]"
             echo "  --no-ui    Запуск без интерактивного меню (требуется --model)"
