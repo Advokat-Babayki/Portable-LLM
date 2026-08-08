@@ -1,6 +1,7 @@
 #!/bin/bash
 # =====================================================
-# detect_hw.sh — Hardware detection for Linux/macOS
+# detect_hw.sh — Hardware detection for Linux
+# (использует lscpu/free//proc; macOS не поддерживается — бинарники ubuntu-x64)
 # Outputs: sourceable environment variables
 # =====================================================
 
