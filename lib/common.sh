@@ -5,17 +5,36 @@
 # =====================================================
 
 # --- Find a free port starting from base ---
+# Работает даже там, где нет ss/netstat (минимальные дистрибутивы,
+# busybox-системы): фолбэк пробует TCP-сокет через bash /dev/tcp.
 find_free_port() {
     local base_port=$1
     local port=$base_port
-    while ss -tuln 2>/dev/null | grep -q ":$port " || netstat -tuln 2>/dev/null | grep -q ":$port "; do
+    local use_probe=false
+    if ! command -v ss >/dev/null 2>&1 && ! command -v netstat >/dev/null 2>&1; then
+        use_probe=true
+    fi
+    while :; do
+        local busy=false
+        if [ "$use_probe" = true ]; then
+            if (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
+                busy=true
+            fi
+        elif ss -tuln 2>/dev/null | grep -q ":$port "; then
+            busy=true
+        elif netstat -tuln 2>/dev/null | grep -q ":$port "; then
+            busy=true
+        fi
+        if [ "$busy" = false ]; then
+            echo "$port"
+            return
+        fi
         ((port++))
         if [ "$port" -gt 65535 ]; then
             echo "$base_port"
             return
         fi
     done
-    echo "$port"
 }
 
 # --- Display hardware info summary ---
