@@ -27,13 +27,37 @@ assert_eq 2212 "$(get_model_size_mb 'test-q5_k_s-3b.gguf')"  '3B Q5_K_S'
 assert_eq 1690 "$(get_model_size_mb 'test-q4_0-3b.gguf')"    '3B Q4_0'
 assert_eq 717 "$(get_model_size_mb 'test-1b.gguf')"          '1B без квантизации'
 
-echo "=== Estimate-Context / Estimate-NGL ==="
+echo "=== Estimate-Context / Estimate-NGL (fallback-эвристика не менялась) ==="
 assert_eq 8192 "$(estimate_context 4096 1000)"   'Context: VRAM>=4096'
 assert_eq 4096 "$(estimate_context 0 16000)"     'Context: RAM>=16G'
 assert_eq 2048 "$(estimate_context 0 8000)"      'Context: RAM<16G'
 assert_eq 1 "$(estimate_ngl 0 4014)"             'NGL: без VRAM'
 assert_eq 52 "$(estimate_ngl 8192 4014)"         'NGL: 8G VRAM / 4G модель'
 assert_eq 99 "$(estimate_ngl 8192 100)"          'NGL: кап 99'
+
+echo "=== GGUF-парсер (синтетический мини-GGUF, паритет с PS-тестом) ==="
+TMP_GGUF="$(mktemp /tmp/llm_gguf_test_XXXXXX.gguf)"
+# Тот же байт-в-байт файл, что в windows-unit.ps1 (qwen2: 28L/4KV/128hd, ctx 32768)
+base64 -d > "$TMP_GGUF" <<'GGUF_B64'
+R0dVRgMAAAAMAAAAAAAAAAcAAAAAAAAAFAAAAAAAAABnZW5lcmFsLmFyY2hpdGVjdHVyZQgAAAAFAAAAAAAAAHF3ZW4yFAAAAAAAAABxd2VuMi5jb250ZXh0X2xlbmd0aAQAAAAAgAAAFgAAAAAAAABxd2VuMi5lbWJlZGRpbmdfbGVuZ3RoBAAAAAAOAAARAAAAAAAAAHF3ZW4yLmJsb2NrX2NvdW50BAAAABwAAAAaAAAAAAAAAHF3ZW4yLmF0dGVudGlvbi5oZWFkX2NvdW50BAAAABwAAAAdAAAAAAAAAHF3ZW4yLmF0dGVudGlvbi5oZWFkX2NvdW50X2t2BAAAAAQAAAAYAAAAAAAAAHF3ZW4yLmF0dGVudGlvbi5oZWFkX2RpbQQAAACAAAAAEAAAAAAAAABxd2VuMi52b2NhYl9zaXplBAAAAIBRAgAVAAAAAAAAAHRva2VuaXplci5nZ21sLnRva2VucwkAAAAIAAAAAwAAAAAAAAAFAAAAAAAAAGhlbGxvBQAAAAAAAAB3b3JsZAEAAAAAAAAAIQ==
+GGUF_B64
+parse_gguf_meta "$TMP_GGUF"
+assert_eq 0 "$?" "GGUF: парсинг успешен"
+assert_eq 32768 "$gguf_ctx"    'GGUF: context_length = 32768'
+assert_eq 28    "$gguf_layer"  'GGUF: block_count = 28'
+assert_eq 4     "$gguf_nkv"    'GGUF: head_count_kv = 4'
+assert_eq 128   "$gguf_head_dim" 'GGUF: head_dim = 128'
+assert_eq "qwen2" "$gguf_arch"  'GGUF: architecture = qwen2'
+echo "GGUF тест-файл: $TMP_GGUF"
+
+echo "=== estimate_context_model (паритет с Get-RecommendedContext PS) ==="
+assert_eq 13385 "$(estimate_context_model "$TMP_GGUF" cpu 3000 1500 0)"      'Rec-Ctx: cpu free3000/model1500'
+assert_eq 32768 "$(estimate_context_model "$TMP_GGUF" vulkan 3000 1500 4096)" 'Rec-Ctx: vulkan vram4096>=model1500 → native cap'
+assert_eq 32768 "$(estimate_context_model "$TMP_GGUF" cpu 8192 4014 0)"      'Rec-Ctx: cpu free8192/model4014'
+assert_eq 256   "$(estimate_context_model "$TMP_GGUF" cpu 4096 4014 0)"      'Rec-Ctx: cpu free4096<model4014 -> min 256'
+assert_eq 2048  "$(estimate_context_model "" cpu 4096 1000 0)"               'Rec-Ctx: пустой файл -> fallback RAM<16G'
+assert_eq 8192  "$(estimate_context_model /nonexistent.gguf cpu 4096 1000 4096)" 'Rec-Ctx: нет GGUF+VRAM4096 -> fallback VRAM'
+rm -f "$TMP_GGUF"
 
 echo "=== MoE ==="
 assert_true "$(is_moe_model 'mixtral-8x7b-instruct-q4_k_m.gguf' && echo true || echo false)" 'MoE: Mixtral-8x7B'

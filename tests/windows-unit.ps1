@@ -28,13 +28,37 @@ Assert-Equal 2212 (Get-ModelSizeMB -Filename 'test-q5_k_s-3b.gguf') '3B Q5_K_S'
 Assert-Equal 1690 (Get-ModelSizeMB -Filename 'test-q4_0-3b.gguf') '3B Q4_0'
 Assert-Equal 717 (Get-ModelSizeMB -Filename 'test-1b.gguf') '1B без квантизации'
 
-Write-Host "=== Estimate-Context / Estimate-NGL ==="
+Write-Host "=== Estimate-Context / Estimate-NGL (fallback-эвристика не менялась) ==="
 Assert-Equal 8192 (Estimate-Context -VRAMMB 4096 -RAMMB 1000) 'Context: VRAM>=4096'
 Assert-Equal 4096 (Estimate-Context -VRAMMB 0 -RAMMB 16000) 'Context: RAM>=16G'
 Assert-Equal 2048 (Estimate-Context -VRAMMB 0 -RAMMB 8000) 'Context: RAM<16G'
 Assert-Equal 1 (Estimate-NGL -VRAMMB 0 -ModelMB 4014) 'NGL: без VRAM'
 Assert-Equal 52 (Estimate-NGL -VRAMMB 8192 -ModelMB 4014) 'NGL: 8G VRAM / 4G модель'
 Assert-Equal 99 (Estimate-NGL -VRAMMB 8192 -ModelMB 100) 'NGL: кап 99'
+
+Write-Host "=== GGUF-парсер (синтетический мини-GGUF, паритет с bash-тестом) ==="
+$tmpGguf = Join-Path ([System.IO.Path]::GetTempPath()) ('llm_gguf_test_' + [guid]::NewGuid().ToString('N') + '.gguf')
+# Тот же байт-в-байт файл, что в linux-unit.sh (qwen2: 28L/4KV/128hd, ctx 32768)
+$ggufB64 = 'R0dVRgMAAAAMAAAAAAAAAAcAAAAAAAAAFAAAAAAAAABnZW5lcmFsLmFyY2hpdGVjdHVyZQgAAAAFAAAAAAAAAHF3ZW4yFAAAAAAAAABxd2VuMi5jb250ZXh0X2xlbmd0aAQAAAAAgAAAFgAAAAAAAABxd2VuMi5lbWJlZGRpbmdfbGVuZ3RoBAAAAAAOAAARAAAAAAAAAHF3ZW4yLmJsb2NrX2NvdW50BAAAABwAAAAaAAAAAAAAAHF3ZW4yLmF0dGVudGlvbi5oZWFkX2NvdW50BAAAABwAAAAdAAAAAAAAAHF3ZW4yLmF0dGVudGlvbi5oZWFkX2NvdW50X2t2BAAAAAQAAAAYAAAAAAAAAHF3ZW4yLmF0dGVudGlvbi5oZWFkX2RpbQQAAACAAAAAEAAAAAAAAABxd2VuMi52b2NhYl9zaXplBAAAAIBRAgAVAAAAAAAAAHRva2VuaXplci5nZ21sLnRva2VucwkAAAAIAAAAAwAAAAAAAAAFAAAAAAAAAGhlbGxvBQAAAAAAAAB3b3JsZAEAAAAAAAAAIQ=='
+[System.IO.File]::WriteAllBytes($tmpGguf, [Convert]::FromBase64String($ggufB64))
+try {
+    $meta = Read-GgufMeta -Path $tmpGguf
+    Assert-True ($null -ne $meta) 'GGUF: парсинг успешен'
+    Assert-Equal 32768 $meta.Ctx 'GGUF: context_length = 32768'
+    Assert-Equal 28 $meta.Layers 'GGUF: block_count = 28'
+    Assert-Equal 4 $meta.KVHeads 'GGUF: head_count_kv = 4'
+    Assert-Equal 128 $meta.HeadDim 'GGUF: head_dim = 128'
+
+    Write-Host "=== Get-RecommendedContext (паритет с estimate_context_model bash) ==="
+    Assert-Equal 13385 (Get-RecommendedContext -ModelFile $tmpGguf -Backend 'cpu' -RAMAvailMB 3000 -ModelMB 1500 -VRAMMB 0) 'Rec-Ctx cpu free3000/model1500'
+    Assert-Equal 32768 (Get-RecommendedContext -ModelFile $tmpGguf -Backend 'vulkan' -RAMAvailMB 3000 -ModelMB 1500 -VRAMMB 4096) 'Rec-Ctx vulkan vram4096 native'
+    Assert-Equal 32768 (Get-RecommendedContext -ModelFile $tmpGguf -Backend 'cpu' -RAMAvailMB 8192 -ModelMB 4014 -VRAMMB 0) 'Rec-Ctx cpu free8192/model4014'
+    Assert-Equal 256 (Get-RecommendedContext -ModelFile $tmpGguf -Backend 'cpu' -RAMAvailMB 4096 -ModelMB 4014 -VRAMMB 0) 'Rec-Ctx cpu min 256'
+    Assert-Equal 2048 (Get-RecommendedContext -ModelFile '' -Backend 'cpu' -RAMAvailMB 4096 -ModelMB 1000 -VRAMMB 0) 'Rec-Ctx пустой -> fallback RAM<16G'
+    Assert-Equal 8192 (Get-RecommendedContext -ModelFile 'C:\nonexistent.gguf' -Backend 'cpu' -RAMAvailMB 4096 -ModelMB 1000 -VRAMMB 4096) 'Rec-Ctx нет GGUF+VRAM4096 -> fallback VRAM'
+} finally {
+    Remove-Item -Force $tmpGguf -ErrorAction SilentlyContinue
+}
 
 Write-Host "=== MoE ==="
 Assert-True (Test-MOEModel 'mixtral-8x7b-instruct-q4_k_m.gguf') 'MoE: Mixtral-8x7B'
@@ -84,23 +108,31 @@ Assert-Equal 1 @($repFiles).Count 'New-CrashReport: файл создан'
 Get-ChildItem (Join-Path $root 'logs') -Filter 'crash_*_TEST.log' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 
 Write-Host "=== autotune.ps1: вывод KEY=VALUE ==="
+# Детерминизм: на любом железе ModelDir указывает на синтетический GGUF,
+# чтобы LLM_CTX не зависел от того, лежит ли реальная модель в models/.
+$tmpModelDir = Join-Path ([System.IO.Path]::GetTempPath()) ('llm_autotune_' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory $tmpModelDir | Out-Null
+$synthModel = Join-Path $tmpModelDir 'qwen2.5-7b-instruct-q4_k_m.gguf'
+[System.IO.File]::WriteAllBytes($synthModel, [Convert]::FromBase64String($ggufB64))
 $ps = if ($env:OS -eq 'Windows_NT') { (Get-Command powershell.exe).Source } else { (Get-Command pwsh).Source }
-$lines = & $ps -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'lib\autotune.ps1') -Model 'qwen2.5-7b-instruct-q4_k_m.gguf' -Backend 'cpu' -ModelDir (Join-Path $root 'models') -VramMB 0 -RamMB 8000
+$lines = & $ps -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'lib\autotune.ps1') -Model 'qwen2.5-7b-instruct-q4_k_m.gguf' -Backend 'cpu' -ModelDir $tmpModelDir -VramMB 0 -RamMB 8000
 $vars = @{}
 foreach ($line in $lines) {
     if ($line -match '^([^=]+)=(.+)$') { $vars[$matches[1]] = $matches[2] }
 }
-Assert-Equal '2048' $vars['LLM_CTX'] 'autotune: LLM_CTX'
+Assert-Equal '32768' $vars['LLM_CTX'] 'autotune: LLM_CTX (native cap из GGUF)'
 Assert-Equal '4014' $vars['LLM_MODEL_MB'] 'autotune: LLM_MODEL_MB'
 Assert-Equal '0' $vars['LLM_NGL'] 'autotune: LLM_NGL (cpu)'
 Assert-Equal '256' $vars['LLM_BATCH'] 'autotune: LLM_BATCH (cpu)'
 Assert-Equal '512' $vars['LLM_UB'] 'autotune: LLM_UB'
 Assert-Equal 'False' $vars['LLM_MOE'] 'autotune: LLM_MOE (cpu)'
 Assert-True ($vars['LLM_THREADS'] -ge 1) 'autotune: LLM_THREADS'
+Remove-Item -Recurse -Force $tmpModelDir -ErrorAction SilentlyContinue
 
 Write-Host "=== cmd for /f парсинг autotune (только Windows) ==="
 if ($env:OS -eq 'Windows_NT') {
-    $cmdOut = & cmd /d /c 'for /f "usebackq delims=" %a in (`powershell -NoProfile -ExecutionPolicy Bypass -File lib\autotune.ps1 -Model qwen2.5-7b-instruct-q4_k_m.gguf -Backend cpu -ModelDir models -VramMB 0 -RamMB 8000`) do @echo %a'
+    # Модели в ModelDir нет → fallback-эвристика (детерминизм на пустом CI)
+    $cmdOut = & cmd /d /c 'for /f "usebackq delims=" %a in (`powershell -NoProfile -ExecutionPolicy Bypass -File lib\autotune.ps1 -Model qwen2.5-7b-instruct-q4_k_m.gguf -Backend cpu -ModelDir "" -VramMB 0 -RamMB 8000`) do @echo %a'
     Assert-True ($cmdOut -match 'LLM_CTX=2048') 'cmd for /f: LLM_CTX'
     Assert-True ($cmdOut -match 'LLM_MODEL_MB=4014') 'cmd for /f: LLM_MODEL_MB'
 } else {
