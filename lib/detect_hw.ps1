@@ -231,7 +231,7 @@ function Estimate-NGL {
     return $ngl
 }
 
-# --- Helper: Estimate context size ---
+# --- Helper: Estimate context size (fallback heuristic) ---
 function Estimate-Context {
     param(
         [int]$VRAMMB,
@@ -240,6 +240,143 @@ function Estimate-Context {
     if ($VRAMMB -ge 4096) { return 8192 }
     elseif ($RAMMB -ge 16000) { return 4096 }
     else { return 2048 }
+}
+
+# ====================================================
+#  GGUF metadata reader (Windows PowerShell).
+#  Читает заголовок GGUF напрямую через BinaryReader —
+#  зеркало bash-парсера из detect_hw.sh. Возвращает
+#  hashtable {CtxLen, EmbedDim, Layers, HeadCount, KVHeads, HeadDim}
+#  или $null при ошибке (вызывающий уходит в fallback).
+# ====================================================
+function Read-GgufMeta {
+    param([string]$Path)
+
+    if (-not $Path -or -not (Test-Path $Path)) { return $null }
+    $fs = $null
+    $br = $null
+    try {
+        $item = Get-Item $Path
+        if ($item.Length -lt 32) { return $null }
+        $fs = [System.IO.File]::OpenRead($Path)
+        $br = New-Object System.IO.BinaryReader $fs
+        $magic = $br.ReadChars(4)
+        if (($magic -join '') -ne 'GGUF') { return $null }
+        $ver = [int]$br.ReadUInt32()
+        if ($ver -lt 1) { return $null }
+        $null = $br.ReadUInt64()   # tensor_count
+        $kvCount = [int]$br.ReadUInt64()
+
+        $meta = @{ Ctx=0; EmbedLen=0; Layers=0; Headers=0; KVHeads=0; HeadDim=0 }
+        for ($i = 0; $i -lt $kvCount; $i++) {
+            if ($fs.Position -ge $fs.Length) { break }
+            $keyLen = [long]$br.ReadUInt64()
+            $key = [System.Text.Encoding]::UTF8.GetString($br.ReadBytes([int]$keyLen))
+            $vtype = [int]$br.ReadUInt32()
+
+            switch ($vtype) {
+                0 { $null = $br.ReadByte() }                      # uint8
+                1 { $null = $br.ReadSByte() }                     # int8
+                2 { $null = $br.ReadUInt16() }                    # uint16
+                3 { $null = $br.ReadInt16() }                     # int16
+                4 { $val = $br.ReadUInt32() }                     # uint32
+                5 { $null = $br.ReadInt32() }                     # int32
+                6 { $null = $br.ReadSingle() }                    # float32
+                7 { $null = $br.ReadBoolean() }                   # bool
+                8 {
+                    $sl = [long]$br.ReadUInt64()                      # string
+                    $null = $br.ReadBytes([int]$sl)
+                }
+                9 {
+                    $et = [int]$br.ReadUInt32()                       # array
+                    $cnt = [long]$br.ReadUInt64()
+                    if ($et -eq 8) {
+                        for ($a = 0; $a -lt $cnt; $a++) {
+                            $es = [long]$br.ReadUInt64()
+                            $null = $br.ReadBytes([int]$es)
+                        }
+                    } else {
+                        $esize = switch ($et) {
+                            0 {1} 1 {1} 2 {2} 3 {2} 7 {1}
+                            10 {8} 11 {8} 12 {8} default {4}
+                        }
+                        $bytes = [math]::Min($cnt * $esize, $fs.Length - $fs.Position)
+                        $null = $br.ReadBytes([int]$bytes)
+                        if ($bytes -lt ($cnt * $esize)) { return $null }
+                    }
+                }
+                10 { $null = $br.ReadUInt64() }                   # uint64
+                11 { $null = $br.ReadInt64() }                    # int64
+                12 { $null = $br.ReadDouble() }                   # float64
+                default { return $null }
+            }
+
+            if ($vtype -eq 4) {
+                switch -Wildcard ($key) {
+                    '*.context_length'           { $meta.Ctx = [int]$val }
+                    '*.embedding_length'         { $meta.EmbedLen = [int]$val }
+                    '*.block_count'              { $meta.Layers = [int]$val }
+                    '*.attention.head_count_kv'  { $meta.KVHeads = [int]$val }
+                    '*.attention.head_count'     { $meta.Headers = [int]$val }
+                    '*.attention.head_dim'       { $meta.HeadDim = [int]$val }
+                }
+            }
+        }
+
+        # derive: kv-heads → head_count; head_dim → n_embd / n_head
+        if ($meta.Headers -le 0) { $meta.Headers = $meta.KVHeads }
+        if ($meta.KVHeads  -le 0) { $meta.KVHeads  = $meta.Headers }
+        if ($meta.HeadDim  -le 0) {
+            if ($meta.EmbedLen -gt 0 -and $meta.Headers -gt 0) {
+                $meta.HeadDim = [int]($meta.EmbedLen / $meta.Headers)
+            } else {
+                $meta.HeadDim = 128
+            }
+        }
+        if ($meta.Ctx -le 0) { $meta.Ctx = 32768 }
+        if ($meta.Layers -le 0 -or $meta.KVHeads -le 0) { return $null }
+        return $meta
+    } catch {
+        return $null
+    } finally {
+        if ($br) { $br.Dispose() }
+        if ($fs) { $fs.Dispose() }
+    }
+}
+
+# --- Context, рассчитанный по GGUF-метаданным и свободной памяти ---
+# $1 = gguf file, $2 = backend (cpu|vulkan), $3 = free RAM MB,
+# $4 = model MB, $5 = VRAM MB. Returns ctx, fallback к Estimate-Context.
+function Get-RecommendedContext {
+    param(
+        [string]$ModelFile,
+        [string]$Backend = "cpu",
+        [int]$RAMAvailMB = 0,
+        [int]$ModelMB = 4000,
+        [int]$VRAMMB = 0
+    )
+
+    $meta = Read-GgufMeta -Path $ModelFile
+    if ($null -eq $meta) {
+        return (Estimate-Context -VRAMMB $VRAMMB -RAMMB $RAMAvailMB)
+    }
+
+    $reserve = 768
+    $kvBytes = $meta.Layers * $meta.KVHeads * $meta.HeadDim * 4
+    if ($kvBytes -lt 1) { $kvBytes = 1024 }
+
+    $budget = if ($Backend -eq 'vulkan' -and $VRAMMB -gt $ModelMB) {
+        $VRAMMB - $ModelMB
+    } else {
+        $RAMAvailMB - $ModelMB
+    }
+    $budget -= $reserve
+    if ($budget -lt 0) { $budget = 0 }
+
+    $ctx = [int][math]::Floor($budget * 1048576 / $kvBytes)
+    if ($ctx -gt $meta.Ctx) { $ctx = $meta.Ctx }
+    if ($ctx -lt 256) { $ctx = 256 }
+    return $ctx
 }
 
 # --- Helper: quant-factor from the shared table lib/quant-factors.tsv ---

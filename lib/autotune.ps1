@@ -33,7 +33,11 @@ try {
     # по умолчанию берутся значения из detect_hw
     $detVram = if ($VramMB -ge 0) { $VramMB } else { $HW_VULKAN_VRAM_MB }
     $detRam  = if ($RamMB -gt 0) { $RamMB } else { $HW_RAM_TOTAL_MB }
-    $ctx     = Estimate-Context -VRAMMB $detVram -RAMMB $detRam
+    $modelFile = if ($Model -and (Test-Path (Join-Path $ModelDir $Model))) {
+        [string](Join-Path $ModelDir $Model)
+    } else { "" }
+    $ctx = Get-RecommendedContext -ModelFile $modelFile -Backend $Backend `
+        -RAMAvailMB $detRam -ModelMB $sizeMb -VRAMMB $detVram
 
     $threads = $HW_THREADS
     if ($threads -lt 1) { $threads = 1 }

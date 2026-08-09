@@ -252,7 +252,15 @@ goto run_llm_common
 :run_llm_common
 if not exist "%~dp0lib\autotune.ps1" goto run_llm_legacy
 
+:: Сохраняем ручное переопределение контекста (если задано до запуска)
+set "LLM_CTX_USER="
+if defined LLM_CTX set "LLM_CTX_USER=!LLM_CTX!"
+
 for /f "usebackq delims=" %%a in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0lib\autotune.ps1" -Model "!SELECTED_MODEL!" -Backend "!LLM_BACKEND!" -ModelDir "%~dp0models"`) do set "%%a"
+
+:: LLM_CTX из autotune не должен перетирать явное значение пользователя
+if defined LLM_CTX_USER set "LLM_CTX=!LLM_CTX_USER!"
+
 if not defined LLM_CTX set "LLM_CTX=2048"
 if not defined LLM_NGL set "LLM_NGL=0"
 if not defined LLM_THREADS set "LLM_THREADS=1"
