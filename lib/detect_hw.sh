@@ -221,7 +221,9 @@ estimate_ngl() {
     echo "$ngl"
 }
 
-# --- Helper: Estimate context size ---
+# --- Helper: Estimate context size (fallback heuristic) ---
+# Used when the GGUF metadata is unavailable (no file, no od/dd, parse error).
+# Печатает 8192/4096/2048 по заданным порогам RAM/VRAM.
 estimate_context() {
     local vram_mb=$1
     local ram_mb=$2
@@ -232,6 +234,149 @@ estimate_context() {
     else
         echo 2048
     fi
+}
+
+# ====================================================
+#  GGUF metadata reader (little-endian helpers).
+#  Парсит заголовок GGUF-файла напрямую (bash+dd+od),
+#  без внешних зависимостей. Если утилит нет — parse fails
+#  и вызывающая сторона уходит в estimate_context (fallback).
+#  Устанавливает глобальные: gguf_ctx, gguf_embed, gguf_layer,
+#  gguf_nhead, gguf_nkv, gguf_head_dim.
+# ====================================================
+gguf_exists() {
+    command -v dd >/dev/null 2>&1 && command -v od >/dev/null 2>&1
+}
+
+gguf_u32() {
+    local f=$1 o=$2 v=0 i=0 b
+    while read -r b; do
+        v=$(( (b << (8 * i)) | v ))
+        i=$((i + 1))
+        [ "$i" -ge 4 ] && break
+    done < <(dd if="$f" bs=1 skip="$o" count=4 2>/dev/null | od -An -tu1 | tr -s ' \t' '\n' | sed '/^$/d')
+    echo "$v"
+}
+
+gguf_u64() {
+    local f=$1 o=$2 v=0 i=0 b
+    while read -r b; do
+        v=$(( (b << (8 * i)) | v ))
+        i=$((i + 1))
+        [ "$i" -ge 8 ] && break
+    done < <(dd if="$f" bs=1 skip="$o" count=8 2>/dev/null | od -An -tu1 | tr -s ' \t' '\n' | sed '/^$/d')
+    echo "$v"
+}
+
+# Скип значения метаданных по типу (сдвигает глобальный gguf_off)
+gguf_skip_val() {
+    local f=$1 t=$2 n c et k
+    case "$t" in
+        0|1|7) gguf_off=$((gguf_off + 1)) ;;
+        2|3) gguf_off=$((gguf_off + 2)) ;;
+        4|5|6) gguf_off=$((gguf_off + 4)) ;;
+        8)
+            n=$(gguf_u64 "$f" "$gguf_off"); gguf_off=$((gguf_off + 8 + n)) ;;
+        9)
+            et=$(gguf_u32 "$f" "$gguf_off"); gguf_off=$((gguf_off + 4))
+            c=$(gguf_u64 "$f" "$gguf_off"); gguf_off=$((gguf_off + 8))
+            case "$et" in
+                8) for ((k = 0; k < c; k++)); do n=$(gguf_u64 "$f" "$gguf_off"); gguf_off=$((gguf_off + 8 + n)); done ;;
+                0|1|7) gguf_off=$((gguf_off + c)) ;;
+                2) gguf_off=$((gguf_off + c * 2)) ;;
+                *) gguf_off=$((gguf_off + c * 4)) ;;
+            esac ;;
+        11|12) gguf_off=$((gguf_off + 8)) ;;
+    esac
+}
+
+# Читает метаданные GGUF: нужные поля + перепрыгивает остальные.
+# Возвращает 0 при успехе. При ошибке — 1 (фолбэк на эвристику).
+parse_gguf_meta() {
+    gguf_arch=""; gguf_ctx=""; gguf_embed=""; gguf_layer=""
+    gguf_nhead=""; gguf_nkv=""; gguf_head_dim=""
+    gguf_exists || return 1
+    local file="$1"
+    [ -f "$file" ] || return 1
+    local size
+    size=$(stat -c%s "$file" 2>/dev/null || echo 0)
+    [ "$size" -ge 32 ] || return 1
+    [ "$(dd if="$file" bs=1 count=4 2>/dev/null)" = "GGUF" ] || return 1
+
+    local ver kv i off keylen vtype key n
+    off=4
+    ver=$(gguf_u32 "$file" "$off"); off=$((off + 4))
+    [ "${ver:-0}" -ge 1 ] || return 1
+    off=$((off + 8))          # skip tensor_count (u64)
+    kv=$(gguf_u64 "$file" "$off"); off=$((off + 8))   # metadata_kv_count
+
+    for ((i = 0; i < kv; i++)); do
+        keylen=$(gguf_u64 "$file" "$off"); off=$((off + 8))
+        key=$(dd if="$file" bs=1 skip="$off" count="$keylen" 2>/dev/null); off=$((off + keylen))
+        vtype=$(gguf_u32 "$file" "$off"); off=$((off + 4))
+        gguf_off=$off
+        case "$key" in
+            general.architecture)   # строка: считываем значение сами
+                if [ "$vtype" = 8 ]; then
+                    n=$(gguf_u64 "$file" "$gguf_off"); gguf_off=$((gguf_off + 8))
+                    gguf_arch=$(dd if="$file" bs=1 skip="$gguf_off" count="$n" 2>/dev/null | tr -d '\0\r\n')
+                    gguf_off=$((gguf_off + n))
+                else
+                    gguf_skip_val "$file" "$vtype"
+                fi ;;
+            *.context_length)        [ "$vtype" = 4 ] && gguf_ctx=$(gguf_u32 "$file" "$gguf_off");     gguf_skip_val "$file" "$vtype" ;;
+            *.embedding_length)      [ "$vtype" = 4 ] && gguf_embed=$(gguf_u32 "$file" "$gguf_off");   gguf_skip_val "$file" "$vtype" ;;
+            *.block_count)           [ "$vtype" = 4 ] && gguf_layer=$(gguf_u32 "$file" "$gguf_off");    gguf_skip_val "$file" "$vtype" ;;
+            *.attention.head_count_kv) [ "$vtype" = 4 ] && gguf_nkv=$(gguf_u32 "$file" "$gguf_off");   gguf_skip_val "$file" "$vtype" ;;
+            *.attention.head_count)  [ "$vtype" = 4 ] && gguf_nhead=$(gguf_u32 "$file" "$gguf_off");   gguf_skip_val "$file" "$vtype" ;;
+            *.attention.head_dim)    [ "$vtype" = 4 ] && gguf_head_dim=$(gguf_u32 "$file" "$gguf_off"); gguf_skip_val "$file" "$vtype" ;;
+            *)                       gguf_skip_val "$file" "$vtype" ;;
+        esac
+        off=$gguf_off
+        [ "$off" -ge "$size" ] && break
+    done
+
+    # derive: kv-heads → распростр. на heads; head_dim → n_embd / n_head
+    [ -z "$gguf_nhead" ] && gguf_nhead=$gguf_nkv
+    [ -z "$gguf_nkv" ]   && gguf_nkv=$gguf_nhead
+    if [ -z "$gguf_head_dim" ]; then
+        if [ -n "$gguf_embed" ] && [ -n "$gguf_nhead" ] && [ "$gguf_nhead" -gt 0 ]; then
+            gguf_head_dim=$((gguf_embed / gguf_nhead))
+        else
+            gguf_head_dim=128
+        fi
+    fi
+    [ -z "$gguf_ctx" ] && gguf_ctx=32768
+    [ "${gguf_layer:-0}" -gt 0 ] && [ "${gguf_nkv:-0}" -gt 0 ] || return 1
+    return 0
+}
+
+# --- Recommended context from GGUF metadata + free memory ---
+# $1 = gguf file, $2 = backend (cpu|vulkan), $3 = free RAM MB,
+# $4 = model MB, $5 = VRAM MB
+# Returns token count (ctx). Falls back to estimate_context heuristic.
+estimate_context_model() {
+    local file="$1" backend="$2" avail_mb="${3:-0}" model_mb="${4:-4000}" vram_mb="${5:-0}"
+    local reserve=${CTX_RESERVE_MB:-768} kv_bytes budget ctx
+    [ -n "$file" ] || { estimate_context "$vram_mb" "$avail_mb"; return; }
+    if ! parse_gguf_meta "$file"; then
+        estimate_context "$vram_mb" "$avail_mb"
+        return
+    fi
+    kv_bytes=$((gguf_layer * gguf_nkv * gguf_head_dim * 4))   # 2 (K+V) * 2 bytes fp16
+    [ "$kv_bytes" -lt 1 ] && kv_bytes=1024
+
+    if [ "$backend" = "vulkan" ] && [ "$vram_mb" -gt "$model_mb" ]; then
+        budget=$((vram_mb - model_mb))
+    else
+        budget=$((avail_mb - model_mb))
+    fi
+    budget=$((budget - reserve))
+    [ "$budget" -lt 0 ] && budget=0
+    ctx=$(( budget * 1048576 / kv_bytes ))
+    if [ "$ctx" -gt "${gguf_ctx:-32768}" ]; then ctx="${gguf_ctx:-32768}"; fi
+    [ "$ctx" -lt 256 ] && ctx=256
+    echo "$ctx"
 }
 
 # --- Helper: first quant-factor from the shared table lib/quant-factors.tsv ---

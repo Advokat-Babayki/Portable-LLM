@@ -242,7 +242,8 @@ run_llm_server() {
             else
                 ngl=$(estimate_ngl "$HW_VULKAN_VRAM_MB" "$model_mb")
             fi
-            ctx=$(estimate_context "$HW_VULKAN_VRAM_MB" "$HW_RAM_TOTAL_MB")
+            ctx=$(estimate_context_model "$MODELS_DIR/$selected_model" "vulkan" "$HW_RAM_AVAIL_MB" "$model_mb" "$HW_VULKAN_VRAM_MB")
+            if [ -n "${LLM_CTX:-}" ]; then ctx="$LLM_CTX"; fi
             run_args=("-m" "$MODELS_DIR/$selected_model" "-ngl" "$ngl" "-c" "$ctx" "-t" "$HW_THREADS" "-b" "512" "-ub" "512")
             run_args+=("--host" "127.0.0.1" "--port" "$llm_port")
             run_args+=("--alias" "$selected_model")
@@ -255,7 +256,8 @@ run_llm_server() {
             cd "$SCRIPT_DIR/bin/linux-cpu" || return 1
             chmod +x llama-server 2>/dev/null
             model_mb=$(get_model_size_mb "$selected_model" "$MODELS_DIR")
-            ctx=$(estimate_context "$HW_VULKAN_VRAM_MB" "$HW_RAM_TOTAL_MB")
+            ctx=$(estimate_context_model "$MODELS_DIR/$selected_model" "cpu" "$HW_RAM_AVAIL_MB" "$model_mb" "$HW_VULKAN_VRAM_MB")
+            if [ -n "${LLM_CTX:-}" ]; then ctx="$LLM_CTX"; fi
             run_args=("-m" "$MODELS_DIR/$selected_model" "-ngl" "0" "-c" "$ctx" "-t" "$HW_THREADS" "-b" "256")
             if [ "$HW_RAM_TOTAL_MB" -gt $((model_mb * 3)) ]; then
                 run_args+=("--load-mode" "mlock")
