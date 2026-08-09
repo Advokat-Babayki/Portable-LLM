@@ -66,6 +66,16 @@ README не читает этот контекст; весь девелопер�
   в `tests/linux-unit.sh` и `tests/windows-unit.ps1` (детерминизм). Юнит-тест
   autotune (`-ModelDir`) указывает на синтетический GGUF во временной папке,
   чтобы результат не зависел от фактических файлов в `models/`.
+- **Early-exit в GGUF-парсере ОБЯЗАТЕЛЕН**: bash-парсер (`parse_gguf_meta`)
+  без него вешает запуск — посимвольный `dd|od`-пропуск `tokenizer.ggml.tokens`
+  (сотни тысяч строк, напр. 151k у qwen2) идёт минутами. Цикл KV прерывается,
+  как только собраны `ctx`, `layer`, `head_count_kv` и (`head_dim` или `embed`).
+  Оговорка: обязательно требовать `head_count_kv`, а НЕ просто `head_count` —
+  оба парсера выходят только по KVHeads. Регрессия-тест строит GGUF с 200k
+  пустых строк токенизатора и ждёт мгновенный ответ (без early-exit висит >60с).
+- **Пути opencode-конфига НЕ хардкодить**: bash берёт
+  `${XDG_CONFIG_HOME:-$HOME/.config}/opencode`, PS — `$env:USERPROFILE\.config\opencode`.
+  В тестах есть проверка отсутствия `/home/<имя>` в обоих скриптах (закрепить).
 - **Pinned-хэши в CI**: smoke-шаг проверяет SHA256 скачанных артефактов —
   путь бинарника в `LLAMA_WIN_CPU_SHA256` в `lib/versions.inc` (обновлять при
   апгрейде версии), модель — по LFS-oid Hugging Face. TLS1.2 + `-UseBasicParsing`.

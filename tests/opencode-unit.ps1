@@ -110,6 +110,16 @@ try {
     Assert-Equal 'http://127.0.0.1:4444/v1' $jF.provider.'llama-local'.options.baseURL 'f: только jsonc — обновлён jsonc'
     Assert-True (-not (Test-Path $cfgF)) 'f: json не создан'
 
+    Write-Host "=== g: путь к глобальному конфигу универсален (\$env:USERPROFILE, без хардкода) ==="
+    $bashUpdate = Join-Path $root 'lib\opencode_update.sh'
+    $psUpdate = Join-Path $root 'lib\update_opencode.ps1'
+    $launcher = Join-Path $root 'Windows.bat'
+    Assert-True ([bool](Select-String -Path $psUpdate -Pattern '\$env:USERPROFILE' -Quiet)) 'g: PS использует $env:USERPROFILE'
+    Assert-True ([bool](Select-String -Path $bashUpdate -Pattern '\$\{XDG_CONFIG_HOME:-' -Quiet)) 'g: bash использует ${XDG_CONFIG_HOME:-$HOME/.config}'
+    foreach ($p in @($psUpdate, $bashUpdate, $launcher)) {
+        Assert-True (-not [bool](Select-String -Path $p -Pattern '/home/[A-Za-z0-9_]+' -Quiet)) "g: нет хардкод-путей в $p"
+    }
+
     Exit-Tests
 } finally {
     Remove-Item -Recurse -Force $script:work -ErrorAction SilentlyContinue

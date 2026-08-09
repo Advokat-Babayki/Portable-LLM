@@ -321,6 +321,15 @@ function Read-GgufMeta {
                     '*.attention.head_dim'       { $meta.HeadDim = [int]$val }
                 }
             }
+
+            # ранний выход (паритет с parse_gguf_meta): реальные GGUF кладут
+            # все поля архитектуры до tokenizer.* — не читать их полностью.
+            # KVHeads обязателен: без него nkv разъедется (см. qwen2.5: head_count
+            # идёт раньше head_count_kv).
+            if ($meta.Ctx -gt 0 -and $meta.Layers -gt 0 -and $meta.KVHeads -gt 0 -and
+                ($meta.HeadDim -gt 0 -or $meta.EmbedLen -gt 0)) {
+                break
+            }
         }
 
         # derive: kv-heads → head_count; head_dim → n_embd / n_head

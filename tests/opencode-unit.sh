@@ -217,4 +217,17 @@ OUT="$(XDG_CONFIG_HOME="$WORK/j" bash "$UPDATE" 2>&1 >/dev/null)"
 assert_eq 1 "$?" "j: exit 1 при пустой модели"
 assert_true "$(echo "$OUT" | grep -qi 'модель'; echo $?)" "j: сообщение об ошибке в stderr"
 
+# ======================================================
+echo "=== k: путь к глобальному конфигу универсален ($HOME, без хардкода) ==="
+# Регрессия: никакого жёсткого /home/<имя> — только $HOME/$USERPROFILE
+assert_grep '\$\{XDG_CONFIG_HOME:-' "$ROOT/lib/opencode_update.sh" "k: bash использует \${XDG_CONFIG_HOME:-\$HOME/.config}"
+assert_grep '\$env:USERPROFILE' "$ROOT/lib/update_opencode.ps1" "k: PS использует \$env:USERPROFILE"
+for f in "$ROOT/lib/opencode_update.sh" "$ROOT/lib/update_opencode.ps1" "$ROOT/Lunix.sh" "$ROOT/Windows.bat"; do
+    if grep -qE '/home/[A-Za-z0-9_]+' "$f"; then
+        FAILURES=$((FAILURES+1)); echo "FAIL: k: захардкоженный путь в $f"
+    else
+        echo "OK:   k: нет хардкод-путей в $f"
+    fi
+done
+
 test_done

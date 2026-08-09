@@ -50,6 +50,32 @@ assert_eq 128   "$gguf_head_dim" 'GGUF: head_dim = 128'
 assert_eq "qwen2" "$gguf_arch"  'GGUF: architecture = qwen2'
 echo "GGUF тест-файл: $TMP_GGUF"
 
+echo "=== GGUF: регрессия раннего выхода (большой tokenizer, HANG-тест) ==="
+BIG_GGUF="$(mktemp /tmp/llm_gguf_big_XXXXXX.gguf)"
+oct() { printf '%03o' "$1"; }
+u32le() { local v=$1; printf "\\$(oct $(( v & 255 )))\\$(oct $(( (v >> 8) & 255 )))\\$(oct $(( (v >> 16) & 255 )))\\$(oct $(( (v >> 24) & 255 )))"; }
+u64le() { local v=$1
+    printf "\\$(oct $(( v & 255 )))\\$(oct $(( (v >> 8) & 255 )))\\$(oct $(( (v >> 16) & 255 )))\\$(oct $(( (v >> 24) & 255 )))\\$(oct $(( (v >> 32) & 255 )))\\$(oct $(( (v >> 40) & 255 )))\\$(oct $(( (v >> 48) & 255 )))\\$(oct $(( (v >> 56) & 255 )))"; }
+put_key() { local k="$1"; u64le "${#k}"; printf '%s' "$k"; }
+put_strkv() { local k="$1" v="$2"; put_key "$k"; u32le 8; u64le "${#v}"; printf '%s' "$v"; }
+put_u32kv() { local k="$1" v="$2"; put_key "$k"; u32le 4; u32le "$v"; }
+{
+    printf 'GGUF'
+    u32le 3; u64le 0; u64le 7
+    put_strkv general.architecture qwen2
+    put_u32kv qwen2.block_count 36
+    put_u32kv qwen2.context_length 32768
+    put_u32kv qwen2.embedding_length 2048
+    put_u32kv qwen2.attention.head_count 16
+    put_u32kv qwen2.attention.head_count_kv 2
+    put_key tokenizer.ggml.tokens; u32le 9; u32le 8; u64le 200000   # 200k пустых строк
+} > "$BIG_GGUF"
+dd if=/dev/zero bs=1600000 count=1 2>/dev/null >> "$BIG_GGUF"
+BIG_RES="$(timeout 20 bash -c '. "$0"; parse_gguf_meta "$1" && echo "ctx=$gguf_ctx layer=$gguf_layer nkv=$gguf_nkv hdim=$gguf_head_dim" || echo FAIL' "$ROOT/lib/detect_hw.sh" "$BIG_GGUF" 2>/dev/null)"
+assert_eq 0 "$?" "GGUF-big: парсинг завершился в пределах таймаута (не завис)"
+assert_eq "ctx=32768 layer=36 nkv=2 hdim=128" "$BIG_RES" "GGUF-big: метаданные до tokenizer.* (без чтения 200k строк)"
+rm -f "$BIG_GGUF"
+
 echo "=== estimate_context_model (паритет с Get-RecommendedContext PS) ==="
 assert_eq 13385 "$(estimate_context_model "$TMP_GGUF" cpu 3000 1500 0)"      'Rec-Ctx: cpu free3000/model1500'
 assert_eq 32768 "$(estimate_context_model "$TMP_GGUF" vulkan 3000 1500 4096)" 'Rec-Ctx: vulkan vram4096>=model1500 → native cap'

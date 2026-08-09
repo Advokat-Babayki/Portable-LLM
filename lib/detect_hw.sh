@@ -333,6 +333,15 @@ parse_gguf_meta() {
             *)                       gguf_skip_val "$file" "$vtype" ;;
         esac
         off=$gguf_off
+        # ранний выход: реальные GGUF кладут все поля архитектуры до
+        # tokenizer.* (тысячи строк) — не сканировать их в bash-парсере.
+        # nkv обязателен (нужен для финальной проверки и KV-derive), поэтому
+        # не выходим раньше, чем прочитан *.attention.head_count_kv.
+        if [ -n "$gguf_ctx" ] && [ -n "$gguf_layer" ] && [ -n "$gguf_nkv" ] &&
+           { [ -n "$gguf_head_dim" ] || [ -n "$gguf_embed" ]; }
+        then
+            break
+        fi
         [ "$off" -ge "$size" ] && break
     done
 

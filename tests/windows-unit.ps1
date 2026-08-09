@@ -60,6 +60,39 @@ try {
     Remove-Item -Force $tmpGguf -ErrorAction SilentlyContinue
 }
 
+Write-Host "=== GGUF: регрессия раннего выхода (большой tokenizer) ==="
+$tmpBigGguf = Join-Path ([System.IO.Path]::GetTempPath()) ('llm_gguf_big_' + [guid]::NewGuid().ToString('N') + '.gguf')
+$fsBig = [System.IO.File]::Create($tmpBigGguf)
+$wBig = New-Object System.IO.BinaryWriter $fsBig
+function Write-W64([long]$v) { $wBig.Write([System.BitConverter]::GetBytes([uint64]$v)) }
+function Write-W32([int]$v)  { $wBig.Write([System.BitConverter]::GetBytes([uint32]$v)) }
+function Write-BigKey([string]$k) { $kb = [System.Text.Encoding]::UTF8.GetBytes($k); $wBig.Write([System.BitConverter]::GetBytes([uint64]$kb.Length)); $wBig.Write($kb) }
+function Write-BigStr([string]$k, [string]$v) { Write-BigKey $k; Write-W32 8; $vb = [System.Text.Encoding]::UTF8.GetBytes($v); $wBig.Write([System.BitConverter]::GetBytes([uint64]$vb.Length)); $wBig.Write($vb) }
+function Write-BigU32([string]$k, [int]$v) { Write-BigKey $k; Write-W32 4; Write-W32 $v }
+$wBig.Write([System.Text.Encoding]::ASCII.GetBytes('GGUF'))
+Write-W32 3; Write-W64 0; Write-W64 7
+Write-BigStr 'general.architecture' 'qwen2'
+Write-BigU32 'qwen2.block_count' 36
+Write-BigU32 'qwen2.context_length' 32768
+Write-BigU32 'qwen2.embedding_length' 2048
+Write-BigU32 'qwen2.attention.head_count' 16
+Write-BigU32 'qwen2.attention.head_count_kv' 2
+$tk = [System.Text.Encoding]::UTF8.GetBytes('tokenizer.ggml.tokens')
+$wBig.Write([System.BitConverter]::GetBytes([uint64]$tk.Length)); $wBig.Write($tk)
+Write-W32 9; Write-W32 8; Write-W64 200000
+$wBig.Write((New-Object byte[] (200000 * 8)))
+$wBig.Close()
+try {
+    $metaBig = Read-GgufMeta -Path $tmpBigGguf
+    Assert-True ($null -ne $metaBig) 'GGUF-big: парсинг успешен'
+    Assert-Equal 32768 $metaBig.Ctx 'GGUF-big: context_length'
+    Assert-Equal 36 $metaBig.Layers 'GGUF-big: block_count'
+    Assert-Equal 2 $metaBig.KVHeads 'GGUF-big: head_count_kv'
+    Assert-Equal 128 $metaBig.HeadDim 'GGUF-big: head_dim (деривация embed/head)'
+} finally {
+    Remove-Item -Force $tmpBigGguf -ErrorAction SilentlyContinue
+}
+
 Write-Host "=== MoE ==="
 Assert-True (Test-MOEModel 'mixtral-8x7b-instruct-q4_k_m.gguf') 'MoE: Mixtral-8x7B'
 Assert-True (Test-MOEModel 'deepseek-v2-lite-16b-moe-q4_k_m.gguf') 'MoE: DeepSeek-V2'
