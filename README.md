@@ -4,8 +4,9 @@
 (whisper.cpp) на любом ПК под **Linux** и **Windows**. Без установки, без
 настройки окружения — скачал, запустил, работает.
 
-[![Linux tests](https://github.com/anomalyco/Portable-LLM/actions/workflows/test-linux.yml/badge.svg)](https://github.com/anomalyco/Portable-LLM/actions/workflows/test-linux.yml)
-[![Windows tests](https://github.com/anomalyco/Portable-LLM/actions/workflows/test-windows.yml/badge.svg)](https://github.com/anomalyco/Portable-LLM/actions/workflows/test-windows.yml)
+[![Linux tests](https://github.com/Advokat-Babayki/Portable-LLM/actions/workflows/test-linux.yml/badge.svg)](https://github.com/Advokat-Babayki/Portable-LLM/actions/workflows/test-linux.yml)
+[![Windows tests](https://github.com/Advokat-Babayki/Portable-LLM/actions/workflows/test-windows.yml/badge.svg)](https://github.com/Advokat-Babayki/Portable-LLM/actions/workflows/test-windows.yml)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 ## Возможности
 
@@ -277,3 +278,13 @@ F16 ≈ 16, Q8_0 ≈ 8.5 и т.д.) — так автотюн работает �
   [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (лицензии в архивах и в папках `bin/*/LICENSE`).
 - Веб-интерфейсы: http://127.0.0.1:8080 (LLM) и http://127.0.0.1:8081 (Whisper)
 - В Git хранятся только скрипты — репозиторий лёгкий и не содержит моделей.
+
+## Лицензия
+
+Лаунчер (скрипты `Lunix.sh` / `Windows.bat` и всё в `lib/`) распространяется
+под **GNU General Public License v3.0** — см. [`LICENSE`](LICENSE).
+
+Обратите внимание: сами бинарники llama.cpp и whisper.cpp, а также модели —
+**не** являются частью этого репозитория. Они скачиваются/кладутся пользователем
+и имеют собственные лицензии (llama.cpp/whisper.cpp — MIT, см. их
+`LICENSE` в архивах).
