@@ -19,6 +19,7 @@ jobs:
   ps-unit:
     name: Unit tests (PowerShell 5.1 + pwsh 7)
     runs-on: windows-latest
+    timeout-minutes: 10
     defaults:
       run:
         shell: powershell
@@ -56,6 +57,7 @@ jobs:
     name: Server smoke (real llama-server.exe)
     runs-on: windows-latest
     needs: ps-unit
+    timeout-minutes: 10
     defaults:
       run:
         shell: powershell
@@ -91,8 +93,8 @@ jobs:
           New-Item -ItemType Directory -Force models | Out-Null
           $out = 'models\qwen2.5-coder-0.5b-instruct-q4_k_m.gguf'
           Invoke-WebRequest -UseBasicParsing -Uri 'https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf' -OutFile $out
-          $mExpected = ((Get-Content lib\versions.inc | Where-Object { $_ -match '^MODEL_SHA256=' }) -split '=',2)[1]
-          if (-not $mExpected) { throw 'MODEL_SHA256 not found in lib\versions.inc' }
+          $mExpected = ((Get-Content lib\versions.inc | Where-Object { $_ -match '^LLAMA_TEST_MODEL_SHA256=' }) -split '=',2)[1]
+          if (-not $mExpected) { throw 'LLAMA_TEST_MODEL_SHA256 not found in lib\versions.inc' }
           $mActual = (Get-FileHash -Algorithm SHA256 $out).Hash.ToLower()
           if ($mActual -ne $mExpected) { throw "SHA256 mismatch for test model: got $mActual, expected $mExpected" }
           Get-Item $out | Select-Object Name, Length
