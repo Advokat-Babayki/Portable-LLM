@@ -30,6 +30,7 @@ PS_TESTS=(
     tests/opencode-unit.ps1
     tests/windows-unit.ps1
     tests/windows-bat-smoke.ps1
+    tests/windows-bat-cli.ps1
 )
 
 MODE="all"

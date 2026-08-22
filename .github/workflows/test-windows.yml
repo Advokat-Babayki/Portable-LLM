@@ -32,6 +32,9 @@ jobs:
       - name: windows-bat-smoke.ps1 (PS 5.1)
         if: always()
         run: ./tests/windows-bat-smoke.ps1
+      - name: windows-bat-cli.ps1 (PS 5.1)
+        if: always()
+        run: ./tests/windows-bat-cli.ps1
       - name: windows-unit.ps1 (pwsh 7)
         if: always()
         shell: pwsh
@@ -44,6 +47,10 @@ jobs:
         if: always()
         shell: pwsh
         run: ./tests/windows-bat-smoke.ps1
+      - name: windows-bat-cli.ps1 (pwsh 7)
+        if: always()
+        shell: pwsh
+        run: ./tests/windows-bat-cli.ps1
 
   server-smoke:
     name: Server smoke (real llama-server.exe)
@@ -84,9 +91,10 @@ jobs:
           New-Item -ItemType Directory -Force models | Out-Null
           $out = 'models\qwen2.5-coder-0.5b-instruct-q4_k_m.gguf'
           Invoke-WebRequest -UseBasicParsing -Uri 'https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf' -OutFile $out
-          $mExpected = '1d9614638d18024d0fbb36575a15f1302a3adf044df10345688ec4f6e1c4ff32'
+          $mExpected = ((Get-Content lib\versions.inc | Where-Object { $_ -match '^MODEL_SHA256=' }) -split '=',2)[1]
+          if (-not $mExpected) { throw 'MODEL_SHA256 not found in lib\versions.inc' }
           $mActual = (Get-FileHash -Algorithm SHA256 $out).Hash.ToLower()
-          if ($mActual -ne $mExpected) { throw "SHA256 mismatch for test model: got $mActual" }
+          if ($mActual -ne $mExpected) { throw "SHA256 mismatch for test model: got $mActual, expected $mExpected" }
           Get-Item $out | Select-Object Name, Length
       - name: Boot server with autotune params and check /health
         run: |

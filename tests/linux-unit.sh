@@ -93,6 +93,15 @@ assert_eq 8  "$(get_moe_expert_count 'mixtral-8x7b-instruct-q4_k_m.gguf')" 'MoE:
 assert_eq 64 "$(get_moe_expert_count 'deepseek-v2-lite-16b-moe-q4_k_m.gguf')" 'MoE: DeepSeek 64'
 assert_eq 32 "$(estimate_moe_ngl 8192 1404 8)" 'MoE NGL: кап 32'
 
+echo "=== estimate_moe_vram_mb ==="
+# Non-MoE model: acts like get_model_size_mb (effective = full size)
+assert_eq 4014 "$(estimate_moe_vram_mb 'qwen2.5-7b-instruct-q4_k_m.gguf')" 'MoE-VRAM: qwen2.5 (dense) = full 7B size'
+# MoE: mixtral-8x7b (8 experts, 2 active = 0.25 ratio): 7B*1024*0.56=4014 → 4014*0.25 + (4014/8)*0.1*8 = 1003+401=1404
+assert_eq 1404 "$(estimate_moe_vram_mb 'mixtral-8x7b-instruct-q4_k_m.gguf')" 'MoE-VRAM: Mixtral-8x7B effective'
+# DeepSeek-V2 (64 experts): 16B*1024*0.56=9175 → falls to default active_ratio=0.25
+# 9175*0.25 + (9175/64)*0.1*64 = 2293+917 = ~3211 (awk rounding)
+assert_eq 3211 "$(estimate_moe_vram_mb 'deepseek-v2-lite-16b-moe-q4_k_m.gguf')" 'MoE-VRAM: DeepSeek-V2 16B effective'
+
 echo "=== find_free_port (занятый порт) ==="
 python3 -m http.server 18431 --bind 127.0.0.1 >/dev/null 2>&1 &
 SRV_PID=$!
@@ -112,5 +121,71 @@ run_with_crash_log "TEST_OK" "cpu" "/bin/sh" "-c" "exit 0" >/dev/null 2>&1
 OK_FILES=$(ls "$ROOT/logs"/crash_*_TEST_OK.log 2>/dev/null | wc -l)
 assert_eq 0 "$OK_FILES" 'run_with_crash_log: нет отчёта при exit 0'
 rm -f "$ROOT/logs"/crash_*_TEST_CRASH.log "$ROOT/logs"/crash_*_TEST_OK.log
+
+echo "=== gguf_exists ==="
+# dd+od available → true (these exist on any normal Linux)
+assert_eq 0 "$(gguf_exists; echo $?)" 'gguf_exists: dd+od доступны'
+
+echo "=== gguf_skip_val ==="
+# Test that gguf_skip_val correctly advances through various GGUF metadata types
+# by building a GGUF with mixed types and checking parse_gguf_meta succeeds
+GGUF_SKIP_FILE="$(mktemp /tmp/llm_gguf_skip_XXXXXX.gguf)"
+{
+    printf 'GGUF'
+    u32le 3; u64le 0; u64le 6                     # version=3, tensor_count=0, kv_count=6
+    # 1) u32 type (4) — *.block_count
+    put_key 'qwen2.block_count'; u32le 4; u32le 8 # type=u32, value=8
+    # 2) u32 type (4) — *.context_length
+    put_key 'qwen2.context_length'; u32le 4; u32le 16384
+    # 3) u32 type (4) — *.attention.head_count_kv
+    put_key 'qwen2.attention.head_count_kv'; u32le 4; u32le 4
+    # 4) u32 type (4) — *.attention.head_count (extra known key to test wildcard skip on unknown)
+    put_key 'qwen2.attention.head_count'; u32le 4; u32le 16
+    # 5) string type (8) — general.architecture
+    put_key 'general.architecture'; u32le 8; u64le 4; printf 'qwen'
+    # 6) float32 type (10) — unknown key, falls to wildcard, should skip 4 bytes
+    put_key 'unknown.test_value'; u32le 10; u32le 12345
+} > "$GGUF_SKIP_FILE"
+parse_gguf_meta "$GGUF_SKIP_FILE"
+assert_eq 0 "$?" "gguf_skip_val: parse_gguf_meta with mixed types успешен"
+assert_eq 16384 "$gguf_ctx"   "gguf_skip_val: context_length = 16384"
+assert_eq 8     "$gguf_layer" "gguf_skip_val: block_count = 8"
+assert_eq 4     "$gguf_nkv"   "gguf_skip_val: head_count_kv = 4"
+assert_eq "qwen" "$gguf_arch" "gguf_skip_val: architecture = qwen"
+rm -f "$GGUF_SKIP_FILE"
+
+# Test skip of float64 type (11) and array type (9) via wildcard
+GGUF_SKIP2_FILE="$(mktemp /tmp/llm_gguf_skip2_XXXXXX.gguf)"
+{
+    printf 'GGUF'
+    u32le 3; u64le 0; u64le 4
+    put_key 'qwen2.block_count'; u32le 4; u32le 4
+    put_key 'qwen2.context_length'; u32le 4; u32le 8192
+    put_key 'qwen2.attention.head_count_kv'; u32le 4; u32le 2
+    # float64 type (11) — wildcard skips 8 bytes
+    put_key 'test.floatval'; u32le 11; u64le 0  # 8 dummy zero bytes
+} > "$GGUF_SKIP2_FILE"
+parse_gguf_meta "$GGUF_SKIP2_FILE" 2>/dev/null; RC=$?
+assert_eq 0 "$RC" "gguf_skip_val: parse with float64 wildcard не падает"
+assert_eq 8192 "$gguf_ctx"   "gguf_skip_val: float64 ctx сохранён = 8192"
+assert_eq 4    "$gguf_layer" "gguf_skip_val: float64 layer = 4"
+rm -f "$GGUF_SKIP2_FILE"
+
+echo "=== print_hw_info ==="
+# print_hw_info is called in menu mode — test it outputs expected fields
+HW_OS="linux"
+HW_CPU_VENDOR="GenuineIntel"
+HW_CPU_VIRT_CORES="4"
+HW_RAM_TOTAL_MB="16000"
+HW_HAS_AVX2="true"
+HW_HAS_AVX512="false"
+HW_VULKAN_FOUND="false"
+HW_REC_REASON="Тест"
+
+OUT=$(print_hw_info 2>&1)
+assert_true "$(echo "$OUT" | grep -q 'Система:'; echo $?)" 'print_hw_info: содержит Система'
+assert_true "$(echo "$OUT" | grep -q 'GenuineIntel'; echo $?)" 'print_hw_info: содержит CPU vendor'
+assert_true "$(echo "$OUT" | grep -q 'GPU: Не обнаружен'; echo $?)" 'print_hw_info: Vulkan не обнаружен'
+assert_true "$(echo "$OUT" | grep -q 'Рекомендация:'; echo $?)" 'print_hw_info: содержит рекомендацию'
 
 test_done
