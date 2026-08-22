@@ -31,8 +31,6 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Install pwsh (needed for autotune.ps1)
-        uses: actions/setup-powershell@v1
       - name: Download llama.cpp linux-cpu binary (pinned SHA256)
         run: |
           ver=$(grep -oP '^LLAMA_VERSION=\K.*' lib/versions.inc | tr -d '[:space:]')
