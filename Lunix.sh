@@ -32,7 +32,14 @@ while [[ $# -gt 0 ]]; do
                 echo "[!] Ключу --model не хватает значения (имя файла модели)"
                 exit 1
             fi
-            CLI_MODEL="$2"; shift 2 ;;
+            CLI_MODEL="$2"; shift 2
+            # === Санитизация: запрещаем path traversal и служебные символы ===
+            case "$CLI_MODEL" in
+                */*|*\\*|*..*|*~*|*\$*|*\|*)
+                    echo "[!] Ошибка: параметр --model содержит недопустимые символы (путь: $CLI_MODEL)"
+                    echo "    Укажите только имя файла модели (например: qwen2.5-7b-instruct-q4_k_m.gguf)"
+                    exit 1 ;;
+            esac ;;
         --backend)
             if [ $# -lt 2 ]; then
                 echo "[!] Ключу --backend не хватает значения (vulkan|cpu)"
@@ -59,9 +66,14 @@ done
 # ============================================================
 if [ -f "$SCRIPT_DIR/lib/versions.inc" ]; then
     source "$SCRIPT_DIR/lib/versions.inc"
+else
+    echo "[!] Не найден lib/versions.inc — единый источник версий. Скрипт не может работать без него." >&2
+    exit 1
 fi
-LLAMA_VERSION="${LLAMA_VERSION:-b9932}"      # https://github.com/ggml-org/llama.cpp/releases
-WHISPER_VERSION="${WHISPER_VERSION:-v1.9.2}" # https://github.com/ggml-org/whisper.cpp/releases
+# ЕДИНСТВЕННЫЙ источник версий — lib/versions.inc (для всех ОС).
+# Если файл отсутствует или не содержит переменную, скрипт завершается.
+: "${LLAMA_VERSION:?}"      # требует LLAMA_VERSION из versions.inc
+: "${WHISPER_VERSION:?}"    # требует WHISPER_VERSION из versions.inc
 
 LLAMA_URL_BASE="https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_VERSION}"
 WHISPER_URL_BASE="https://github.com/ggml-org/whisper.cpp/releases/download/${WHISPER_VERSION}"
@@ -114,6 +126,28 @@ download_binaries() {
         echo "[!] Скачанный файл подозрительно мал (${size} байт). Проверьте ссылку."
         rm -rf "$tmp_dir"
         return 1
+    fi
+
+    # SHA256-проверка: сверяемся с pinned-хэшами из versions.inc (если заданы)
+    if command -v sha256sum >/dev/null 2>&1; then
+        local check_hash=""
+        if [ "$url" = "$BIN_URL_LLAMA_CPU_LINUX" ] && [ -n "${LLAMA_LINUX_CPU_SHA256:-}" ]; then
+            check_hash="$LLAMA_LINUX_CPU_SHA256"
+        elif [ "$url" = "$BIN_URL_LLAMA_VK_LINUX" ] && [ -n "${LLAMA_LINUX_VK_SHA256:-}" ]; then
+            check_hash="$LLAMA_LINUX_VK_SHA256"
+        elif [ "$url" = "$BIN_URL_WHISPER_CPU_LINUX" ] && [ -n "${WHISPER_LINUX_CPU_SHA256:-}" ]; then
+            check_hash="$WHISPER_LINUX_CPU_SHA256"
+        fi
+        if [ -n "$check_hash" ]; then
+            local actual_hash
+            actual_hash=$(sha256sum "$archive" | cut -d' ' -f1)
+            if [ "$actual_hash" != "$check_hash" ]; then
+                echo "[!] SHA256 не совпадает! Ожидался $check_hash, получен $actual_hash"
+                rm -rf "$tmp_dir"
+                return 1
+            fi
+            echo "  ✓ SHA256: $actual_hash"
+        fi
     fi
 
     # Официальные архивы содержат вложенную папку (llama-b9932/ и т.п.) — срезаем её
@@ -217,20 +251,27 @@ run_llm_server() {
         echo -e "\n[Запуск LLM $selected_model на CPU...]"
     fi
 
+    # Определяем порт ОДИН раз — используем для opencode и запуска
+    local effective_port=8080
+    if [ "$LIB_OK" = true ]; then
+        effective_port=$(find_free_port 8080)
+    fi
+
     # Прописываем в opencode.json текущую модель и порт (для интеграции с OpenCode)
     if [ -f "$SCRIPT_DIR/lib/opencode_update.sh" ]; then
-        local effective_port=8080
-        if [ "$LIB_OK" = true ]; then
-            effective_port=$(find_free_port 8080)
-        fi
         bash "$SCRIPT_DIR/lib/opencode_update.sh" "$selected_model" "$effective_port" || true
     fi
 
     if [ "$LIB_OK" = true ]; then
-        llm_port=$(find_free_port 8080)
+        llm_port=$effective_port
         echo "Адрес веб-интерфейса: http://127.0.0.1:$llm_port"
+
+        # Определяем параметры в зависимости от backend
+        local bin_dir=""
+        local bind_args=()
         if [ "$backend" = "vulkan" ]; then
-            cd "$SCRIPT_DIR/bin/linux-vulkan" || return 1
+            bin_dir="$SCRIPT_DIR/bin/linux-vulkan"
+            cd "$bin_dir" || return 1
             chmod +x llama-server 2>/dev/null
             model_mb=$(get_model_size_mb "$selected_model" "$MODELS_DIR")
             if is_moe_model "$selected_model"; then
@@ -243,33 +284,53 @@ run_llm_server() {
                 ngl=$(estimate_ngl "$HW_VULKAN_VRAM_MB" "$model_mb")
             fi
             ctx=$(estimate_context_model "$MODELS_DIR/$selected_model" "vulkan" "$HW_RAM_AVAIL_MB" "$model_mb" "$HW_VULKAN_VRAM_MB")
-            if [ -n "${LLM_CTX:-}" ]; then ctx="$LLM_CTX"; fi
-            run_args=("-m" "$MODELS_DIR/$selected_model" "-ngl" "$ngl" "-c" "$ctx" "-t" "$HW_THREADS" "-b" "512" "-ub" "512")
-            run_args+=("--host" "127.0.0.1" "--port" "$llm_port")
-            run_args+=("--alias" "$selected_model")
-            echo "[*] Параметры: ${run_args[*]}"
-            if [ "$SILENT" = false ]; then
-                (xdg-open "http://127.0.0.1:$llm_port" >/dev/null 2>&1 &)
+            # === Валидация LLM_CTX из окружения: защита от OOM ===
+            if [ -n "${LLM_CTX:-}" ]; then
+                case "$LLM_CTX" in
+                    ''|*[!0-9]*) echo "[!] LLM_CTX='$LLM_CTX' — должно быть целое число. Игнорирую." ;;
+                    *)
+                        if [ "$LLM_CTX" -lt 256 ] || [ "$LLM_CTX" -gt 131072 ]; then
+                            echo "[!] LLM_CTX=$LLM_CTX вне допустимого диапазона (256-131072). Игнорирую."
+                        else
+                            ctx="$LLM_CTX"
+                        fi ;;
+                esac
             fi
-            run_with_crash_log "llm" "vulkan" "$SCRIPT_DIR/bin/linux-vulkan/llama-server" "${run_args[@]}"
+            run_args=("-m" "$MODELS_DIR/$selected_model" "-ngl" "$ngl" "-c" "$ctx" "-t" "$HW_THREADS" "-b" "512" "-ub" "512")
+            bind_args=("llm" "vulkan" "$bin_dir/llama-server")
         else
-            cd "$SCRIPT_DIR/bin/linux-cpu" || return 1
+            bin_dir="$SCRIPT_DIR/bin/linux-cpu"
+            cd "$bin_dir" || return 1
             chmod +x llama-server 2>/dev/null
             model_mb=$(get_model_size_mb "$selected_model" "$MODELS_DIR")
+            ngl=0
             ctx=$(estimate_context_model "$MODELS_DIR/$selected_model" "cpu" "$HW_RAM_AVAIL_MB" "$model_mb" "$HW_VULKAN_VRAM_MB")
-            if [ -n "${LLM_CTX:-}" ]; then ctx="$LLM_CTX"; fi
+            # === Валидация LLM_CTX из окружения: защита от OOM ===
+            if [ -n "${LLM_CTX:-}" ]; then
+                case "$LLM_CTX" in
+                    ''|*[!0-9]*) echo "[!] LLM_CTX='$LLM_CTX' — должно быть целое число. Игнорирую." ;;
+                        *)
+                        if [ "$LLM_CTX" -lt 256 ] || [ "$LLM_CTX" -gt 131072 ]; then
+                            echo "[!] LLM_CTX=$LLM_CTX вне допустимого диапазона (256-131072). Игнорирую."
+                        else
+                            ctx="$LLM_CTX"
+                        fi ;;
+                esac
+            fi
             run_args=("-m" "$MODELS_DIR/$selected_model" "-ngl" "0" "-c" "$ctx" "-t" "$HW_THREADS" "-b" "256")
             if [ "$HW_RAM_TOTAL_MB" -gt $((model_mb * 3)) ]; then
                 run_args+=("--load-mode" "mlock")
             fi
-            run_args+=("--host" "127.0.0.1" "--port" "$llm_port")
-            run_args+=("--alias" "$selected_model")
-            echo "[*] Параметры: ${run_args[*]}"
-            if [ "$SILENT" = false ]; then
-                (xdg-open "http://127.0.0.1:$llm_port" >/dev/null 2>&1 &)
-            fi
-            run_with_crash_log "llm" "cpu" "$SCRIPT_DIR/bin/linux-cpu/llama-server" "${run_args[@]}"
+            bind_args=("llm" "cpu" "$bin_dir/llama-server")
         fi
+        # Общие для обоих backend параметры
+        run_args+=("--host" "127.0.0.1" "--port" "$llm_port")
+        run_args+=("--alias" "$selected_model")
+        echo "[*] Параметры: ${run_args[*]}"
+        if [ "$SILENT" = false ]; then
+            (xdg-open "http://127.0.0.1:$llm_port" >/dev/null 2>&1 &)
+        fi
+        run_with_crash_log "${bind_args[@]}" "${run_args[@]}"
     else
         echo "Адрес веб-интерфейса: http://127.0.0.1:8080"
         if [ "$backend" = "vulkan" ]; then
@@ -300,7 +361,7 @@ run_whisper_server() {
         echo "Адрес веб-интерфейса: http://127.0.0.1:$whisper_port"
         cd "$SCRIPT_DIR/whisper/bin/linux-cpu" || return 1
         chmod +x whisper-server 2>/dev/null
-        run_args=("-m" "$WHISPER_MODELS_DIR/$selected_model" "--host" "127.0.0.1" "--port" "$whisper_port" "--public" "../../")
+        run_args=("-m" "$WHISPER_MODELS_DIR/$selected_model" "--host" "127.0.0.1" "--port" "$whisper_port" "--public" "../../whisper/ui")
         echo "[*] Параметры: ${run_args[*]}"
         if [ "$SILENT" = false ]; then
             ui_url="http://127.0.0.1:$whisper_port/ui.html?port=$whisper_port"

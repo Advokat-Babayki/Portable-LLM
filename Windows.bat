@@ -17,8 +17,8 @@ set "LLAMA_VERSION="
 set "WHISPER_VERSION="
 for /f "tokens=1,* delims==" %%a in ('findstr /b "LLAMA_VERSION=" "%VERSFILE%" 2^>nul') do set "LLAMA_VERSION=%%b"
 for /f "tokens=1,* delims==" %%a in ('findstr /b "WHISPER_VERSION=" "%VERSFILE%" 2^>nul') do set "WHISPER_VERSION=%%b"
-if not defined LLAMA_VERSION set "LLAMA_VERSION=b9932"
-if not defined WHISPER_VERSION set "WHISPER_VERSION=v1.9.2"
+:: Фолбэков версий НЕТ — единый источник lib\versions.inc. Если пусто —
+:: бинарники не скачаются, и лаунчер сообщит об ошибке на этапе проверки.
 set "LLAMA_URL_BASE=https://github.com/ggml-org/llama.cpp/releases/download/%LLAMA_VERSION%"
 set "WHISPER_URL_BASE=https://github.com/ggml-org/whisper.cpp/releases/download/%WHISPER_VERSION%"
 
@@ -87,6 +87,24 @@ if not errorlevel 1 (
     powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%DL_URL%' -OutFile '%DL_OUT%'"
 )
 if errorlevel 1 exit /b 1
+
+:: SHA256 проверка для llama CPU (Windows) — pinned-хэш из versions.inc
+if /i not "%DL_URL%"=="%LLAMA_URL_BASE%/llama-%LLAMA_VERSION%-bin-win-cpu-x64.zip" goto :skip_sha256
+if not defined LLAMA_WIN_CPU_SHA256 goto :skip_sha256
+if "%LLAMA_WIN_CPU_SHA256%"=="" goto :skip_sha256
+
+echo [i] Проверка SHA256...
+set "EXPECTED=%LLAMA_WIN_CPU_SHA256%"
+set "ACTUAL="
+for /f "usebackq delims=" %%h in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-FileHash -Path '%DL_OUT%' -Algorithm SHA256 ^| ForEach-Object { $_.Hash.ToLower() }"`) do set "ACTUAL=%%h"
+if /i not "!ACTUAL!"=="!EXPECTED!" (
+    echo [!] SHA256 не совпадает!
+    echo    Ожидался: !EXPECTED!
+    echo    Получен:  !ACTUAL!
+    exit /b 1
+)
+echo  ^✓ SHA256: !ACTUAL!
+:skip_sha256
 exit /b 0
 
 :unpack_bin
@@ -261,6 +279,24 @@ for /f "usebackq delims=" %%a in (`powershell -NoProfile -ExecutionPolicy Bypass
 :: LLM_CTX из autotune не должен перетирать явное значение пользователя
 if defined LLM_CTX_USER set "LLM_CTX=!LLM_CTX_USER!"
 
+:: === Валидация LLM_CTX: защита от OOM (рук. переопределение) ===
+if defined LLM_CTX (
+    echo !LLM_CTX!|findstr /r /b /c:"^[0-9][0-9]*$" >nul
+    if errorlevel 1 (
+        echo [!] LLM_CTX=!LLM_CTX! — должно быть целым числом — сбрасываю на 2048.
+        set "LLM_CTX=2048"
+    ) else (
+        if !LLM_CTX! lss 256 (
+            echo [!] LLM_CTX=!LLM_CTX! меньше 256. Ставлю 256.
+            set "LLM_CTX=256"
+        )
+        if !LLM_CTX! gtr 131072 (
+            echo [!] LLM_CTX=!LLM_CTX! больше 131072. Ставлю 131072.
+            set "LLM_CTX=131072"
+        )
+    )
+)
+
 if not defined LLM_CTX set "LLM_CTX=2048"
 if not defined LLM_NGL set "LLM_NGL=0"
 if not defined LLM_THREADS set "LLM_THREADS=1"
@@ -298,7 +334,7 @@ cd /d "%~dp0"
 
 echo.
 echo Сервер остановлен (код: !LLM_EXIT!).
-if not "!LLM_EXIT!"=="0" if not "!LLM_EXIT!"=="1" if not "!LLM_EXIT!"=="2" if not "!LLM_EXIT!"=="3221225786" (
+if not "!LLM_EXIT!"=="0" if not "!LLM_EXIT!"=="1" if not "!LLM_EXIT!"=="2" if not "!LLM_EXIT!"=="124" if not "!LLM_EXIT!"=="130" if not "!LLM_EXIT!"=="143" if not "!LLM_EXIT!"=="3221225786" (
     powershell -NoProfile -ExecutionPolicy Bypass -Command ". '%~dp0lib\common.ps1'; . '%~dp0lib\detect_hw.ps1'; New-CrashReport -Mode 'LLM' -Backend '!LLM_BACKEND!' -Model '!SELECTED_MODEL!' -Params 'ctx=!LLM_CTX! ngl=!LLM_NGL! threads=!LLM_THREADS! batch=!LLM_BATCH! port=!LLM_PORT!' -ExitCode !LLM_EXIT!"
 )
 pause
@@ -320,9 +356,9 @@ echo.
 cd /d "%~dp0!LLM_BINDIR!"
 if "!LLM_BACKEND!"=="vulkan" (
     set "GGML_VK_VISIBLE_DEVICES=0"
-    llama-server.exe -m "..\..\models\!SELECTED_MODEL!" -ngl 99 -c 2048 -np 1 --host 127.0.0.1 --port 8080 --alias "!SELECTED_MODEL!"
+    llama-server.exe -m "..\..\models\!SELECTED_MODEL!" -ngl 99 -c 8192 -np 1 --host 127.0.0.1 --port 8080 --alias "!SELECTED_MODEL!"
 ) else (
-    llama-server.exe -m "..\..\models\!SELECTED_MODEL!" -c 2048 -np 1 --host 127.0.0.1 --port 8080 --alias "!SELECTED_MODEL!"
+    llama-server.exe -m "..\..\models\!SELECTED_MODEL!" -c 8192 -np 1 --host 127.0.0.1 --port 8080 --alias "!SELECTED_MODEL!"
 )
 set "LLM_EXIT=!errorlevel!"
 cd /d "%~dp0"
@@ -430,12 +466,12 @@ echo (браузер откроется автоматически)
 start /b "" cmd /c "ping -n 8 127.0.0.1 >nul & start "" "" http://127.0.0.1:!W_PORT!/ui.html?port=!W_PORT!"
 cd /d "%~dp0whisper\bin\win-cpu"
 set "W_EXIT=0"
-whisper-server.exe -m "..\..\models\!SELECTED_W_MODEL!" --host 127.0.0.1 --port !W_PORT! --public "..\.."
+whisper-server.exe -m "..\..\models\!SELECTED_W_MODEL!" --host 127.0.0.1 --port !W_PORT! --public "..\..\whisper\ui"
 set "W_EXIT=!errorlevel!"
 cd /d "%~dp0"
 echo.
 echo Сервер остановлен (код: !W_EXIT!).
-if not "!W_EXIT!"=="0" if not "!W_EXIT!"=="1" if not "!W_EXIT!"=="2" if not "!W_EXIT!"=="3221225786" (
+if not "!W_EXIT!"=="0" if not "!W_EXIT!"=="1" if not "!W_EXIT!"=="2" if not "!W_EXIT!"=="124" if not "!W_EXIT!"=="130" if not "!W_EXIT!"=="143" if not "!W_EXIT!"=="3221225786" (
     powershell -NoProfile -ExecutionPolicy Bypass -Command ". '%~dp0lib\common.ps1'; . '%~dp0lib\detect_hw.ps1'; New-CrashReport -Mode 'WHISPER' -Backend 'cpu' -Model '!SELECTED_W_MODEL!' -Params 'port=!W_PORT!' -ExitCode !W_EXIT!"
 )
 pause
