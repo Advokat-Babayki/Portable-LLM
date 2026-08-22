@@ -1,4 +1,4 @@
-﻿# =====================================================
+# =====================================================
 # windows-bat-smoke.ps1 — smoke-тест файла Windows.bat
 # Проверяет целостность и связанность batch-скрипта
 # без запуска интерактивных меню:
@@ -59,12 +59,13 @@ Assert-True ($batLines -match 'llama-%LLAMA_VERSION%-bin-win-cpu-x64\.zip')   'C
 Assert-True ($batLines -match 'llama-%LLAMA_VERSION%-bin-win-vulkan-x64\.zip') 'Vulkan-URL: llama-%LLAMA_VERSION%-bin-win-vulkan-x64.zip'
 Assert-True ($batLines -match 'whisper-bin-x64\.zip') 'Whisper-URL: whisper-bin-x64.zip'
 
-Write-Host "=== Windows.bat: fallback-версии синхронизированы с versions.inc ==="
-# В bat есть резервные значения (%LLAMA_VERSION% пуст — пасется из versions.inc),
-# они не должны "протухнуть" и разойтись с единым источником.
-$fbLine = ($batLines | Where-Object { $_ -match '^if not defined LLAMA_VERSION set "LLAMA_VERSION=' }) -join ''
-Assert-True ($fbLine -match [regex]::Escape("LLAMA_VERSION=$llamaVer")) "fallback LLAMA_VERSION=$llamaVer совпадает с versions.inc"
-$fbWhLine = ($batLines | Where-Object { $_ -match '^if not defined WHISPER_VERSION set "WHISPER_VERSION=' }) -join ''
-Assert-True ($fbWhLine -match [regex]::Escape("WHISPER_VERSION=$whisperVer")) "fallback WHISPER_VERSION=$whisperVer совпадает с versions.inc"
+Write-Host "=== Windows.bat: fallback-версии отсутствуют (единый источник versions.inc) ==="
+# Фолбэки удалены — версии берутся ТОЛЬКО из lib\versions.inc.
+# Убеждаемся, что строк `if not defined LLAMA_VERSION set` и
+# `if not defined WHISPER_VERSION set` больше нет.
+$fbLlama  = ($batLines | Where-Object { $_ -match 'if not defined LLAMA_VERSION' })
+$fbWhisper = ($batLines | Where-Object { $_ -match 'if not defined WHISPER_VERSION' })
+Assert-True ($fbLlama.Count -eq 0) "fallback LLAMA_VERSION больше нет в Windows.bat (единый источник versions.inc)"
+Assert-True ($fbWhisper.Count -eq 0) "fallback WHISPER_VERSION больше нет в Windows.bat (единый источник versions.inc)"
 
 Exit-Tests

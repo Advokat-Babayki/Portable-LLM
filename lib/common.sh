@@ -75,8 +75,10 @@ run_with_crash_log() {
     local exit_code=${PIPESTATUS[0]}
 
     # Check for crash — exclude normal shutdown codes:
-    # 130 = SIGINT (Ctrl+C), 143 = SIGTERM, 124 = timeout command
-    if [ "$exit_code" -ne 0 ] && [ "$exit_code" -ne 124 ] && [ "$exit_code" -ne 130 ] && [ "$exit_code" -ne 143 ]; then
+    # 0 = success, 1 = generic error, 2 = misuse (normal server exit),
+    # 124 = timeout, 130 = SIGINT (Ctrl+C), 143 = SIGTERM
+    if [ "$exit_code" -ne 0 ] && [ "$exit_code" -ne 1 ] && [ "$exit_code" -ne 2 ] \
+       && [ "$exit_code" -ne 124 ] && [ "$exit_code" -ne 130 ] && [ "$exit_code" -ne 143 ]; then
         # Create crash report
         local crash_file="logs/crash_$(date '+%Y-%m-%d_%H-%M-%S')_${mode}.log"
         {

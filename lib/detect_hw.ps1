@@ -388,22 +388,48 @@ function Get-RecommendedContext {
     return $ctx
 }
 
-# --- Helper: quant-factor from the shared table lib/quant-factors.tsv ---
-# Single source of truth: same table is used by bash (detect_hw.sh).
-# Returns factor (e.g. 0.56) or fallback 0.70.
-function Get-ModelQuantFactor {
-    param([string]$Filename)
-    $fnameUpper = $Filename.ToUpper()
+# --- Cache for quant-factors table (load once from lib/quant-factors.tsv) ---
+$script:QF_CACHE = $null
+
+function Initialize-QuantCache {
     $table = Join-Path $PSScriptRoot 'quant-factors.tsv'
-    if (-not (Test-Path $table)) { return 0.70 }
+    if (-not (Test-Path $table)) { return }
+    $cache = @()
     foreach ($line in Get-Content $table) {
         $line = $line.Trim()
         if (-not $line -or $line.StartsWith('#')) { continue }
         $parts = $line -split "`t"
         if ($parts.Length -lt 2) { continue }
-        $pattern = $parts[0].Trim()
-        $factor  = [double]$parts[1]
-        if ($fnameUpper -like $pattern) { return $factor }
+        $cache += @{ Pattern = $parts[0].Trim(); Factor = [double]$parts[1] }
+    }
+    $script:QF_CACHE = $cache
+}
+
+# --- Helper: quant-factor from the shared table lib/quant-factors.tsv ---
+# Single source of truth: same table is used by bash (detect_hw.sh).
+# Таблица кешируется в памяти при первом обращении.
+function Get-ModelQuantFactor {
+    param([string]$Filename)
+    $fnameUpper = $Filename.ToUpper()
+    $table = Join-Path $PSScriptRoot 'quant-factors.tsv'
+    if (-not (Test-Path $table)) { return 0.70 }
+    # Ленивая инициализация кеша
+    if ($null -eq $script:QF_CACHE) { Initialize-QuantCache }
+    if ($script:QF_CACHE) {
+        foreach ($entry in $script:QF_CACHE) {
+            if ($fnameUpper -like $entry.Pattern) { return $entry.Factor }
+        }
+    } else {
+        # Fallback: прямой поиск по файлу
+        foreach ($line in Get-Content $table) {
+            $line = $line.Trim()
+            if (-not $line -or $line.StartsWith('#')) { continue }
+            $parts = $line -split "`t"
+            if ($parts.Length -lt 2) { continue }
+            $pattern = $parts[0].Trim()
+            $factor  = [double]$parts[1]
+            if ($fnameUpper -like $pattern) { return $factor }
+        }
     }
     return 0.70
 }
@@ -440,9 +466,11 @@ function Test-MOEModel {
     $fnameUpper = $Filename.ToUpper()
     
     switch -Regex ($fnameUpper) {
-        "MOE|MIXTRAL|DEEPSEEK-V2|DEEPSEEK-V3|DOLPHIN-MIX|EXPERT|ROUTED|SPARSE" {
+        # Паритет с bash is_moe_model: MOE, MIXTRAL, 8X/8x, DeepSeek, etc.
+        "MOE|MIXTRAL|8X|DEEPSEEK-V2|DEEPSEEK-V3|DOLPHIN-MIX|EXPERT|ROUTED|SPARSE" {
             return $true
         }
+        # Pattern XxY with B/M suffix (e.g. 8X7B, 16x7B)
         "\d+X\d+[BM]" {
             return $true
         }

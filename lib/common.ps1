@@ -81,8 +81,11 @@ function Run-With-CrashLog {
         $_ | Out-String | Out-File -FilePath "$logDir\run_${timestamp}_error.log" -Encoding utf8
     }
 
-    # --- Проверка на краш (исключаем штатные коды 0/1/2 и -1=ошибка запуска) ---
-    if ($exitCode -ne 0 -and $exitCode -ne 1 -and $exitCode -ne 2 -and $exitCode -ne -1) {
+    # --- Проверка на краш (исключаем штатные коды и сигналы) ---
+    # 0=success, 1=generic, 2=misuse, -1=ошибка запуска
+    # Unix-сигналы (для кросс-платформенного паритета): 130=SIGINT, 143=SIGTERM, 124=timeout
+    if ($exitCode -ne 0 -and $exitCode -ne 1 -and $exitCode -ne 2 -and $exitCode -ne -1 `
+        -and $exitCode -ne 124 -and $exitCode -ne 130 -and $exitCode -ne 143) {
         $crashFile = "$logDir\crash_$(Get-Date -Format 'yyyy-MM-dd_HH-mm-ss')_${Mode}.log"
         $report = @(
             "=== CRASH REPORT ==="

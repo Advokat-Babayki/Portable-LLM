@@ -1,4 +1,4 @@
-# =====================================================
+﻿# =====================================================
 # update_opencode.ps1 — updates provider "llama-local" in
 # the GLOBAL opencode config with the currently loaded
 # model id and its port. Uses only built-in PowerShell

@@ -388,22 +388,64 @@ estimate_context_model() {
     echo "$ctx"
 }
 
+# --- Cache for quant-factors table (load once from lib/quant-factors.tsv) ---
+# Loaded on first call to get_model_quant_factor; stored in global _QF_CACHE
+# as alternating lines: pat1\nfactor1\npat2\nfactor2\n...
+_QF_CACHE=""
+_QF_CACHE_LOADED=false
+
+_init_quant_cache() {
+    local table="${QUANT_TABLE_FILE:-$SCRIPT_DIR/lib/quant-factors.tsv}"
+    [ -f "$table" ] || return 1
+    _QF_CACHE=""
+    while IFS=$'\t' read -r pat factor; do
+        case "$pat" in ''|\#*) continue ;; esac
+        _QF_CACHE="${_QF_CACHE}${pat}"$'\n'"${factor}"$'\n'
+    done < "$table"
+    _QF_CACHE_LOADED=true
+}
+
 # --- Helper: first quant-factor from the shared table lib/quant-factors.tsv ---
 # Single source of truth: same table is used by PowerShell (detect_hw.ps1).
 # Returns factor (e.g. 0.56) or fallback 0.70.
+# Таблица кешируется в памяти при первом обращении.
 get_model_quant_factor() {
     local filename="$1"
     local fname
     fname=$(echo "$filename" | tr '[:lower:]' '[:upper:]')
     local table="${QUANT_TABLE_FILE:-$SCRIPT_DIR/lib/quant-factors.tsv}"
     [ -f "$table" ] || { echo 0.70; return; }
-    local pat factor
-    while IFS=$'\t' read -r pat factor; do
-        case "$pat" in ''|\#*) continue ;; esac
-        case "$fname" in
-            $pat) echo "$factor"; return ;;
-        esac
-    done < "$table"
+
+    # Ленивая инициализация кеша
+    $_QF_CACHE_LOADED || _init_quant_cache
+
+    if [ -n "$_QF_CACHE" ]; then
+        # Поиск по кешированным строкам
+        local old_ifs="$IFS"
+        IFS=$'\n'
+        local cache_lines=()
+        while IFS= read -r line; do
+            cache_lines+=("$line")
+        done <<< "$_QF_CACHE"
+        IFS="$old_ifs"
+        local i
+        for ((i = 0; i < ${#cache_lines[@]}; i += 2)); do
+            local pat="${cache_lines[$i]}"
+            local factor="${cache_lines[$((i+1))]:-0.70}"
+            case "$fname" in
+                $pat) echo "$factor"; return ;;
+            esac
+        done
+    else
+        # Fallback: прямой поиск по файлу (если кеш пуст, но файл есть)
+        local pat factor
+        while IFS=$'\t' read -r pat factor; do
+            case "$pat" in ''|\#*) continue ;; esac
+            case "$fname" in
+                $pat) echo "$factor"; return ;;
+            esac
+        done < "$table"
+    fi
     echo 0.70
 }
 
