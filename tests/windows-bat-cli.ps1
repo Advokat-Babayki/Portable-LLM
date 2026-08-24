@@ -105,14 +105,12 @@ if ($env:OS -eq 'Windows_NT') {
         [System.IO.File]::WriteAllBytes($synthModel3, [Convert]::FromBase64String($ggufB64))
         
         # cmd for /f парсинг, как в Windows.bat:
-        # Создаём временный .bat-файл, который эмулирует синтаксис Windows.bat
-        $batchFile = Join-Path $tmpDir3 'test_parsing.bat'
-        $batContent = @"
-@echo off
-for /f "usebackq delims=" %%%%a in (`"$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$root\lib\autotune.ps1" -Model qwen2.5-7b-instruct-q4_k_m.gguf -Backend cpu -ModelDir "$tmpDir3" -VramMB 0 -RamMB 8000`) do echo %%%%a
-"@
-        [System.IO.File]::WriteAllText($batchFile, $batContent)
-        $cmdOut = & cmd /d /c "`"$batchFile`""
+        # В Windows.bat используется `for /f "usebackq delims=" %%a in ('powershell ...') do ...`
+        # где powershell.exe находится через %PATH% (без полного пути).
+        # Эмулируем это через cmd /c: передаём команду в кавычках,
+        # а для usebackq внутренние обратные кавычки экранируем через ^ (cmd escape).
+        $cmdLine = 'for /f "usebackq delims=" %a in (`powershell -NoProfile -ExecutionPolicy Bypass -File "' + $root + '\lib\autotune.ps1" -Model qwen2.5-7b-instruct-q4_k_m.gguf -Backend cpu -ModelDir "' + $tmpDir3 + '" -VramMB 0 -RamMB 8000`) do @echo %a'
+        $cmdOut = & cmd /d /c $cmdLine
         
         Assert-True ($cmdOut -match 'LLM_CTX=32768') 'cmd for /f: LLM_CTX из autotune'
         Assert-True ($cmdOut -match 'LLM_MODEL_MB=4014') 'cmd for /f: LLM_MODEL_MB'
