@@ -20,7 +20,7 @@ $verInc = Join-Path $root 'lib\versions.inc'
 
 Write-Host "=== Windows.bat: BOM и кодировка ==="
 $bytes = [System.IO.File]::ReadAllBytes($bat)
-Assert-True ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) 'BOM (EF BB BF) присутствует'
+Assert-True ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) 'BOM (EF BB BF) present'
 
 Write-Host "=== Windows.bat: версии из versions.inc ==="
 Assert-True (Test-Path $verInc) 'lib\versions.inc существует'

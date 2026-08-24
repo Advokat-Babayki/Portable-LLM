@@ -1,4 +1,4 @@
-﻿# =====================================================
+# =====================================================
 # windows-bat-cli.ps1 — Тест CLI-парсинга Windows.bat
 # Проверяет:
 #   * for /f парсинг вывода autotune.ps1 (KEY=VALUE → set)
@@ -104,9 +104,15 @@ if ($env:OS -eq 'Windows_NT') {
         $synthModel3 = Join-Path $tmpDir3 'qwen2.5-7b-instruct-q4_k_m.gguf'
         [System.IO.File]::WriteAllBytes($synthModel3, [Convert]::FromBase64String($ggufB64))
         
-        # cmd /c for /f парсинг, как в Windows.bat:
-        $psExe = (Get-Command powershell.exe).Source
-        $cmdOut = & cmd /d /c "for /f ""usebackq delims="" %a in (""$psExe -NoProfile -ExecutionPolicy Bypass -File `"$root\lib\autotune.ps1`" -Model qwen2.5-7b-instruct-q4_k_m.gguf -Backend cpu -ModelDir `"$tmpDir3`" -VramMB 0 -RamMB 8000"") do @echo %a"
+        # cmd for /f парсинг, как в Windows.bat:
+        # Создаём временный .bat-файл, который эмулирует синтаксис Windows.bat
+        $batchFile = Join-Path $tmpDir3 'test_parsing.bat'
+        $batContent = @"
+@echo off
+for /f "usebackq delims=" %%%%a in (`"$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$root\lib\autotune.ps1" -Model qwen2.5-7b-instruct-q4_k_m.gguf -Backend cpu -ModelDir "$tmpDir3" -VramMB 0 -RamMB 8000`) do echo %%%%a
+"@
+        [System.IO.File]::WriteAllText($batchFile, $batContent)
+        $cmdOut = & cmd /d /c "`"$batchFile`""
         
         Assert-True ($cmdOut -match 'LLM_CTX=32768') 'cmd for /f: LLM_CTX из autotune'
         Assert-True ($cmdOut -match 'LLM_MODEL_MB=4014') 'cmd for /f: LLM_MODEL_MB'
